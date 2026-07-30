@@ -1,0 +1,162 @@
+ANEXT - Anexador de Teses
+
+Notas de atualização em 27/07/2026
+
+
+VERSÃO 3.0
+
+- Suporte a tabelas sem coluna de segurado, agrupadas por CNPJ (e por
+  vigência, quando a tabela tiver essa coluna também) — caso da tese
+  "Bloqueio de Rotatividade", que lista por empresa em vez de por
+  pessoa. O programa identifica sozinho esse tipo de tabela e gera uma
+  capa por CNPJ (ou por CNPJ + vigência), com o título "VIGÊNCIA {ano}
+  – CNPJ Nº {cnpj}" em cada uma.
+
+- Corrigido: as caixas de diálogo (confirmar ordem, padronizar tabela,
+  manual rápido, avisos, escolher arquivo/pasta etc.) abriam sempre no
+  monitor principal do Windows, mesmo com o ANEXT aberto em outro
+  monitor. Agora todas acompanham a posição atual da janela do ANEXT.
+
+- Corrigido um erro ("FzErrorSystem...") ao gerar capas com título de
+  tese muito longo dentro de uma pasta da tese  — o arquivo intermediário 
+  das capas usava o título inteiro como nome, o  que podia estourar o limite 
+  de 260 caracteres de caminho do Windows. Agora sempre usa o nome curto 
+  "Capas Geradas" diretamente (geralmente na tese de 60 dias).
+
+- Mais resistente a bloqueios temporários de arquivo (antivírus,
+  OneDrive sincronizando, etc.) durante a geração/divisão/junção dos
+  PDFs — o programa tenta de novo automaticamente antes de mostrar
+  erro.
+
+- Quando a tabela tem apenas 1 segurado, não é mais gerada uma página
+  individual repetindo a mesma informação — a tabela completa (já com
+  o título da tese e a única linha) faz esse papel sozinha. Vale tanto
+  para "Gerar capas" quanto para "All-in-one".
+
+- Ajustado o espaçamento da aba All-in-one para o "Resultado" continuar
+  visível e legível durante o processamento, mesmo sem redimensionar a
+  janela.
+
+- Na aba "Gerar capas", o PDF (e o Word, se marcado) sempre são salvos
+  como "Capas Geradas", no lugar do título da tese — mesmo padrão
+  usado na aba All-in-one.
+
+- A "Pasta de salvamento" da aba "Gerar capas" passou a se chamar
+  "Pasta da tese" (mesmo nome usado na aba All-in-one). Continua
+  preenchida automaticamente com a pasta do .docx importado — se você
+  escolher outra pasta manualmente, a sua escolha é mantida.
+
+- Botão "⛔ Suspender" na aba All-in-one: aparece ao lado da barra de
+  progresso enquanto o processamento está rodando (some quando
+  termina). Suspende de forma limpa — nada de arquivo pela metade —
+  mantendo o que já tinha sido gerado/dividido até aquele ponto na
+  pasta da tese.
+
+- Corrigida uma página em branco que aparecia logo depois da tabela
+  completa, quando a tabela tinha linhas suficientes para preencher a
+  página quase até o fim (ex.: teses com muitos segurados).
+
+- Na aba All-in-one, o log mostra o andamento de cada etapa, segurado
+  por segurado ("✓ Capas geradas", "✓ Capas divididas", "✓ PDFs
+  juntados"). Se as subpastas numeradas ainda não existirem, as capas
+  saem soltas na pasta da tese e a etapa de juntar os PDFs é pulada
+  (com um aviso), sem travar o processo.
+
+- Na aba All-in-one, também avisa se alguma subpasta de segurado já
+  tem uma capa de uma rodada anterior (arquivo começando com "0.", de
+  quando o tópico ou o título eram diferentes) — confirmando, essas
+  capas antigas são apagadas antes de gerar as novas, evitando capas
+  duplicadas no PDF final.
+
+- Na aba All-in-one, antes de gerar as capas, avisa se já existe um
+  PDF (ou Word) com esse nome na pasta da tese.
+
+- Na aba All-in-one, bem no momento de juntar os PDFs (já com as capas
+  divididas nas subpastas), mostra a mesma conferência da aba "Juntar
+  PDFs" — lista das subpastas com a quantidade de arquivos e páginas
+  já atualizada, e aviso se o PDF final já existir. Cancelar nessa hora
+  não desfaz o que já foi feito: as capas geradas e divididas continuam
+  valendo, só a junção final é pulada.
+
+- Na aba All-in-one não existe uma "pasta de salvamento" separada: é a
+  pasta da tese que recebe tudo, direto na raiz, sem subpasta própria —
+  o PDF (e o Word, se marcado) das capas geradas sai como "Capas
+  Geradas", e o PDF final da tese inteira sai como "Tópico X - " mais
+  o nome da própria pasta (o "X" é o número do tópico informado, varia
+  conforme a tese).
+
+- Na aba All-in-one, a pasta da tese é preenchida automaticamente com
+  a pasta do .docx importado — se você escolher outra pasta
+  manualmente pelo "Procurar...", ela para de seguir o documento.
+
+- Nova aba "All-in-one" (primeira aba do programa): roda em sequência
+  automática as etapas de Gerar capas → Dividir capas → Juntar PDFs
+  (no modo "Tese completa") num único clique.
+
+
+VERSÃO 2.2
+
+- A aba "Compactar PDF" foi removida do programa enquanto a ferramenta
+  passa por desenvolvimento e testes. Volta em uma próxima atualização.
+
+- Menu de botão direito (Recortar, Copiar, Colar e Selecionar tudo) em
+  todos os campos de texto do programa.
+
+- A janela do programa agora pode ser redimensionada e maximizada
+  livremente — o banner do topo se ajusta à nova largura.
+
+- O manual rápido ganhou a etapa "0. Gere as capas".
+
+- Aviso antes de sobrescrever: se já existe um PDF (ou Word) gerado
+  com o mesmo título na pasta de salvamento, o programa pede
+  confirmação antes de substituir.
+
+- O modo "Colar texto" está em desenvolvimento e aparece desativado
+  ("em breve") — por enquanto, use sempre a importação do .docx.
+
+- O botão "Procurar..." de importar o .docx da tabela fica ao lado do
+  campo, em destaque, para não ser confundido com o botão de baixar o
+  documento base.
+
+- Opção de gerar também um arquivo Word (.docx) junto com o PDF.
+
+- Aviso na tela: se a tabela ocupar mais de uma página, desative a
+  opção "Repetir linhas de cabeçalho" — caso contrário, o programa não
+  conseguirá ler os dados corretamente.
+
+- Botão "Baixar documento base das tabelas": salva um documento Word
+  em branco, já com as margens corretas, para montar a tabela de
+  segurados antes de importar — evita erros de formatação.
+
+- Quando o mesmo segurado aparece em linhas separadas da tabela (com
+  outros segurados no meio), cada ocorrência vira uma página própria —
+  linhas seguidas do mesmo segurado continuam sendo agrupadas numa
+  única página, normalmente.
+
+- A coluna de nomes é reconhecida em qualquer variação de gênero e
+  número: EMPREGADA, EMPREGADAS, EMPREGADO(A), EMPREGADOS (AS) etc. —
+  valendo também para a identificação do tipo da tabela no catálogo de
+  larguras.
+
+- Reprodução fiel da tabela importada: as linhas são copiadas inteiras do
+  documento original, preservando a formatação aplicada em trechos
+  específicos (negrito e cor de fonte pontuais, como datas de DIB em
+  laranja), as mesclagens verticais de todas as colunas (ex.: "Processo",
+  "Diferença entre DCB e DIB") e as setas ou outras formas desenhadas
+  sobre a tabela, na posição original — tanto na tabela completa quanto
+  na página de cada segurado (cada página leva apenas a seta do próprio
+  segurado).
+
+- O Gerador de Capas FAP passou a fazer parte do ANEXT, como aba "Gerar
+  capas" (primeiro passo do fluxo de trabalho). Informe o número do
+  tópico, o título da tese e a tabela de segurados (importada de um
+  .docx) — o programa gera um PDF com a capa geral, a tabela completa
+  e uma capa por segurado, pronto para a aba "Dividir capas".
+
+
+VERSÃO 2.1
+
+- Programa mais leve: o instalador caiu de 62,5 MB para 38,6 MB
+  (remoção das bibliotecas numpy e pikepdf, substituídas por
+  equivalentes já embutidos), sem nenhuma mudança na aparência ou
+  nas funcionalidades.
