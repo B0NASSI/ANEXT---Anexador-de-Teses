@@ -7,9 +7,13 @@ Fluxo:
   1. Lê a versão instalada (versao.txt)
   2. Consulta a API do GitHub Releases (releases/latest)
   3. Sem update (ou sem internet/GitHub fora) -> abre o ANEXT.exe e fecha, sem erro
-  4. Com update -> mostra janela (versão atual, nova, progresso, botão Pular)
+  4. Com update -> mostra janela (versão atual, nova, barra de progresso). A
+     atualização é obrigatória: não tem botão de pular, e fechar a janela
+     não cancela nada.
      - baixa o asset para arquivo temporário
      - valida o tamanho baixado
+     - fecha qualquer ANEXT.exe que esteja rodando (senão o arquivo fica
+       bloqueado na hora de substituir)
      - faz backup do ANEXT.exe atual
      - substitui o ANEXT.exe e atualiza versao.txt
      - abre o ANEXT.exe atualizado e fecha o launcher
@@ -23,6 +27,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 import requests
@@ -45,6 +50,40 @@ DOWNLOAD_CHUNK_SIZE = 65536
 
 LARGURA_JANELA = 460
 ALTURA_BANNER = 78
+
+
+NOME_JANELA_ANEXT = "ANEXT - Anexador de Teses"
+
+
+def _posicionar_janela(janela, largura: int, altura: int) -> None:
+    """Centraliza `janela` sobre a janela do ANEXT, se ele já estiver aberto
+    (ex.: o launcher rodou de novo com o programa já em uso) — assim a caixa
+    de atualização aparece no mesmo monitor onde a pessoa está, em vez de
+    sempre no monitor principal. Sem o ANEXT aberto (caso mais comum),
+    centraliza no monitor principal como de costume."""
+    janela.update_idletasks()
+    try:
+        import win32gui
+
+        hwnds = []
+        win32gui.EnumWindows(
+            lambda hwnd, _: hwnds.append(hwnd)
+            if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd) == NOME_JANELA_ANEXT
+            else None,
+            None,
+        )
+        if hwnds:
+            esquerda, topo, direita, baixo = win32gui.GetWindowRect(hwnds[0])
+            x = esquerda + ((direita - esquerda) - largura) // 2
+            y = topo + max(((baixo - topo) - altura) // 2 - 30, 0)
+            janela.geometry(f"{largura}x{altura}+{x}+{y}")
+            return
+    except Exception:
+        pass
+
+    x = (janela.winfo_screenwidth() - largura) // 2
+    y = max((janela.winfo_screenheight() - altura) // 2 - 50, 0)
+    janela.geometry(f"{largura}x{altura}+{x}+{y}")
 
 
 def _caminho_recurso(nome: str) -> str:
@@ -158,13 +197,30 @@ def download_asset(url: str, dest: Path, expected_size, progress_callback):
 # ---------------------------------------------------------------------------
 # Aplicar atualização
 # ---------------------------------------------------------------------------
+def fechar_anext_em_execucao() -> None:
+    """Força o encerramento de qualquer ANEXT.exe em execução — o Windows não
+    deixa substituir o arquivo de um programa que ainda está rodando. Não dá
+    erro se não houver nenhum rodando (o taskkill só falha silenciosamente)."""
+    try:
+        subprocess.run(
+            ["taskkill", "/F", "/IM", APP_EXE.name, "/T"],
+            capture_output=True, timeout=10,
+        )
+    except Exception:
+        pass  # se de fato houver algo travando o arquivo, o replace() abaixo revela o erro
+    time.sleep(0.5)  # da um tempinho pro Windows liberar o handle do arquivo
+
+
 def apply_update(tmp_path: Path, new_version: str):
-    """Faz backup, substitui o ANEXT.exe e atualiza versao.txt.
+    """Fecha o ANEXT em execução, faz backup, substitui o ANEXT.exe e
+    atualiza versao.txt.
 
     Se falhar após o backup ser criado, restaura o backup automaticamente.
     """
     backup_created = False
     try:
+        fechar_anext_em_execucao()
+
         if APP_EXE.exists():
             shutil.copy2(APP_EXE, BACKUP_EXE)
             backup_created = True
@@ -209,14 +265,14 @@ def launch_app():
 class UpdaterUI:
     def __init__(self, local_version, remote_version, release):
         self.release = release
-        self.skipped = False
         self._indeterminate_running = False
 
         self.root = ttk.Window(themename="litera", iconphoto=None)
         tema.aplicar(self.root)
         self.root.title("ANEXT - Atualização disponível")
         self.root.resizable(False, False)
-        self.root.protocol("WM_DELETE_WINDOW", self.on_skip)
+        # atualização obrigatória: não tem como pular, nem fechando a janela
+        self.root.protocol("WM_DELETE_WINDOW", lambda: None)
         try:
             self.root.iconbitmap(_caminho_recurso("assets/pdf.ico"))
         except Exception:
@@ -250,18 +306,13 @@ class UpdaterUI:
         self.status_label = ttk.Label(corpo, text="Baixando atualização...", bootstyle="secondary")
         self.status_label.pack(anchor="w")
 
-        self.skip_button = ttk.Button(corpo, text="Pular", command=self.on_skip, bootstyle="primary-outline")
-        self.skip_button.pack(pady=(14, 0))
+        self.root.update_idletasks()
+        _posicionar_janela(self.root, LARGURA_JANELA, self.root.winfo_reqheight())
 
     def run(self):
         thread = threading.Thread(target=self._download_and_apply, daemon=True)
         thread.start()
         self.root.mainloop()
-
-    def on_skip(self):
-        self.skipped = True
-        self.root.destroy()
-        launch_app()
 
     def set_progress(self, percent, downloaded=None, total=None):
         if percent is None:
@@ -289,8 +340,6 @@ class UpdaterUI:
         self.root.update_idletasks()
 
     def finish(self, success: bool, message: str = ""):
-        if self.skipped:
-            return
         self.root.destroy()
         if not success and message:
             messagebox.showerror("Atualização", message)
@@ -309,7 +358,7 @@ class UpdaterUI:
                 self.release.get("asset_size"),
                 lambda p, d, t: self.root.after(0, self.set_progress, p, d, t),
             )
-            self.root.after(0, self.set_status, "Aplicando atualização...")
+            self.root.after(0, self.set_status, "Fechando o ANEXT e aplicando a atualização...")
 
             apply_update(tmp_path, self.release["tag_name"])
 

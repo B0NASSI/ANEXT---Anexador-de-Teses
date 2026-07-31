@@ -23,9 +23,14 @@ VERSÃO 3.0
 - Novo "ANEXT Launcher.exe": verifica automaticamente se há uma versão
   mais nova publicada no GitHub antes de abrir o ANEXT. Sem internet ou
   sem atualização, abre direto sem nenhuma tela extra; com atualização,
-  mostra uma janelinha (com a cara do ANEXT) baixando e aplicando,
-  com opção de pular. O programa principal agora é o "ANEXT.exe" — o
-  atalho do dia a dia passa a ser o launcher, não mais o exe direto.
+  mostra uma janelinha (com a cara do ANEXT, e que acompanha a posição
+  da janela do ANEXT se ele já estiver aberto) baixando e aplicando —
+  a atualização é obrigatória, sem opção de pular. Ao concluir o
+  download, fecha o ANEXT automaticamente (se estiver aberto),
+  substitui o programa e reabre já atualizado; se falhar em qualquer
+  etapa, restaura a versão anterior a partir do backup e abre ela
+  normalmente. O programa principal agora é o "ANEXT.exe" — o atalho
+  do dia a dia passa a ser o launcher, não mais o exe direto.
 
 - Suporte a tabelas sem coluna de segurado, agrupadas por CNPJ (e por
   vigência, quando a tabela tiver essa coluna também) — caso da tese
