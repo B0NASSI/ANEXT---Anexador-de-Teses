@@ -26,10 +26,41 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        'numpy',
+        'pywinauto',
+        'adodbapi',
+        'isapi',
+        'pythonwin',
+        'setuptools',
+        'pip',
+        'unittest',
+        'email',
+        'http',
+        'xmlrpc',
+        'ftplib',
+        'multiprocessing',
+    ],
     noarchive=False,
     optimize=0,
 )
+# binários de formatos/recursos não usados pelo app (avif/webp/cms/imagemath do
+# Pillow, lxml.html.diff, isoschematron, pythonwin) — cortados manualmente pois
+# os hooks de terceiros os incluem sempre, mesmo sem uso no código (o app só
+# abre .ico/.png e PNGs gerados internamente pelo fitz).
+_prefixos_nao_usados = (
+    'pil\\_avif', 'pil/_avif',
+    'pil\\_webp', 'pil/_webp',
+    'pil\\_imagingcms', 'pil/_imagingcms',
+    'pil\\_imagingmath', 'pil/_imagingmath',
+    'lxml\\html', 'lxml/html',
+    'lxml\\isoschematron', 'lxml/isoschematron',
+    'pythonwin\\', 'pythonwin/',
+    'win32\\win32trace', 'win32/win32trace',
+)
+a.binaries = [x for x in a.binaries if not x[0].lower().startswith(_prefixos_nao_usados)]
+a.datas = [x for x in a.datas if not x[0].lower().startswith(_prefixos_nao_usados)]
+
 pyz = PYZ(a.pure)
 
 exe = EXE(
