@@ -1,0 +1,35 @@
+# Ambientes Python, builds e executáveis — não é código-fonte, cada
+# máquina gera o seu (uv/pip install + pyinstaller)
+.venv/
+__pycache__/
+*.pyc
+build/
+dist/
+*.exe
+
+# Lixo temporário do Word/Windows
+~$*
+Thumbs.db
+.DS_Store
+
+# Pastas e arquivos de exemplo/teste com nomes, CNPJ, NIT e números de
+# benefício reais de clientes/segurados
+6. 60 dias/
+modelos/
+saida/
+Gerador de capas/
+ERRO/
+BASE TABELAS - GEROU UM FOLHA BRANCA.docx
+ATRIBUIÇÃO INDEVIDA DE NEXO TÉCNICO PREVIDENCIÁRIO – RECONHECIMENTO JUDICIAL DA AUSÊNCIA DE NEXO CAUSAL E DE CONCAUSALIDADE – BENEFÍCIOS PREVIDENCIÁRIOS.pdf
+PDFsam_addbackpages.pdf
+modelo/60 dias.docx
+modelo/modelo - com processo judicial.docx
+modelo/TABELAS.docx
+# ^ TABELAS.docx é o catálogo de larguras de coluna, usado de verdade pelo
+# programa (gerar.py/documento.py) - mas as tabelas de exemplo dentro dele
+# têm nome/NIT/CNPJ reais. Quem clonar o repositório precisa recriá-lo (ou
+# colocar uma cópia) manualmente antes de compilar/gerar capas.
+
+# Instalador Inno Setup: saída gerada (o .exe do setup e artefatos do build)
+installer/output/
+installer/Output/
