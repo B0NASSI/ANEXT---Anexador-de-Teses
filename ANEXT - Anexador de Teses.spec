@@ -1,28 +1,28 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [
+assets_datas = [
     ('assets/pdf.ico', 'assets'),
     ('assets/folder interno.ico', 'assets'),
     ('assets/Logo RS completa colorida.png', 'assets'),
-    ('modelo', 'modelo'),
 ]
-binaries = []
-hiddenimports = ['win32com', 'win32com.client', 'pythoncom']
-tmp_ret = collect_all('ttkbootstrap')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('PIL')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('fitz')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
+# ---------------------------------------------------------------------------
+# ANEXT.exe - programa principal
+# ---------------------------------------------------------------------------
+app_datas = list(assets_datas) + [('modelo', 'modelo')]
+app_binaries = []
+app_hiddenimports = ['win32com', 'win32com.client', 'pythoncom']
+for pacote in ('ttkbootstrap', 'PIL', 'fitz'):
+    tmp_ret = collect_all(pacote)
+    app_datas += tmp_ret[0]; app_binaries += tmp_ret[1]; app_hiddenimports += tmp_ret[2]
 
-a = Analysis(
+a_app = Analysis(
     ['src/app.py'],
     pathex=['src'],
-    binaries=binaries,
-    datas=datas,
-    hiddenimports=hiddenimports,
+    binaries=app_binaries,
+    datas=app_datas,
+    hiddenimports=app_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -44,6 +44,7 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+
 # binários de formatos/recursos não usados pelo app (avif/webp/cms/imagemath do
 # Pillow, lxml.html.diff, isoschematron, pythonwin) — cortados manualmente pois
 # os hooks de terceiros os incluem sempre, mesmo sem uso no código (o app só
@@ -58,18 +59,68 @@ _prefixos_nao_usados = (
     'pythonwin\\', 'pythonwin/',
     'win32\\win32trace', 'win32/win32trace',
 )
-a.binaries = [x for x in a.binaries if not x[0].lower().startswith(_prefixos_nao_usados)]
-a.datas = [x for x in a.datas if not x[0].lower().startswith(_prefixos_nao_usados)]
+a_app.binaries = [x for x in a_app.binaries if not x[0].lower().startswith(_prefixos_nao_usados)]
+a_app.datas = [x for x in a_app.datas if not x[0].lower().startswith(_prefixos_nao_usados)]
 
-pyz = PYZ(a.pure)
+pyz_app = PYZ(a_app.pure)
 
-exe = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.datas,
+exe_app = EXE(
+    pyz_app,
+    a_app.scripts,
+    a_app.binaries,
+    a_app.datas,
     [],
-    name='ANEXT - Anexador de Teses',
+    name='ANEXT',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=['assets/pdf.ico'],
+)
+
+# ---------------------------------------------------------------------------
+# ANEXT Launcher.exe - checa atualizações no GitHub antes de abrir o ANEXT.exe
+# ---------------------------------------------------------------------------
+launcher_datas = list(assets_datas)
+launcher_binaries = []
+launcher_hiddenimports = []
+for pacote in ('ttkbootstrap', 'PIL', 'requests'):
+    tmp_ret = collect_all(pacote)
+    launcher_datas += tmp_ret[0]; launcher_binaries += tmp_ret[1]; launcher_hiddenimports += tmp_ret[2]
+
+a_launcher = Analysis(
+    ['src/launcher.py'],
+    pathex=['src'],
+    binaries=launcher_binaries,
+    datas=launcher_datas,
+    hiddenimports=launcher_hiddenimports,
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    noarchive=False,
+    optimize=0,
+)
+a_launcher.binaries = [x for x in a_launcher.binaries if not x[0].lower().startswith(_prefixos_nao_usados)]
+a_launcher.datas = [x for x in a_launcher.datas if not x[0].lower().startswith(_prefixos_nao_usados)]
+
+pyz_launcher = PYZ(a_launcher.pure)
+
+exe_launcher = EXE(
+    pyz_launcher,
+    a_launcher.scripts,
+    a_launcher.binaries,
+    a_launcher.datas,
+    [],
+    name='ANEXT Launcher',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

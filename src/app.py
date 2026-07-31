@@ -488,7 +488,7 @@ class AplicativoDivisorPDF:
         self._imagem_logo = _carregar_imagem_altura(_caminho_recurso("assets/Logo RS completa colorida.png"), 24)
         tk.Label(rodape, image=self._imagem_logo, borderwidth=0, background=tema.COR_FUNDO).pack(side=LEFT)
 
-        ttk.Label(rodape, text="versão 3.0", bootstyle="secondary", font=("Segoe UI", 8)).pack(side=RIGHT)
+        ttk.Label(rodape, text="versão 3.1", bootstyle="secondary", font=("Segoe UI", 8)).pack(side=RIGHT)
 
     def _abrir_manual(self):
         janela = ttk.Toplevel(self.root)
@@ -1282,14 +1282,18 @@ class AplicativoDivisorPDF:
                     f"✓ Capas divididas ({_plural(len(arquivos_divididos), 'arquivo', 'arquivos')})", "item",
                 )
 
-                # só junta se já existir ao menos uma subpasta numerada —
-                # com capas soltas (sem subpastas) não há o que juntar ainda.
-                # a confirmação (lista de pastas + páginas + aviso de
-                # sobrescrita) só faz sentido bem AQUI, no momento de
-                # juntar — antes disso as capas ainda nem existiam
+                # só junta se o número de subpastas numeradas bater com o
+                # número de segurados da tabela — se não bater, separar_capas
+                # deixou as capas soltas na pasta da tese (não distribuídas
+                # nas subpastas), e tentar juntar só daria um erro confuso
+                # ("nenhuma subpasta continha PDF"). A confirmação (lista de
+                # pastas + páginas + aviso de sobrescrita) só faz sentido bem
+                # AQUI, no momento de juntar — antes disso as capas ainda nem
+                # existiam
                 caminho_final = None
                 motivo_sem_juntar = None
-                if pastas_segurados_em_ordem(pasta_tese):
+                subpastas_atuais = pastas_segurados_em_ordem(pasta_tese)
+                if subpastas_atuais and len(subpastas_atuais) == len(tabela_segurados.grupos):
                     if self._allin_confirmar_juntar(pasta_tese):
                         caminho_final = juntar_pdfs.juntar_tese(
                             pasta_tese, pasta_tese, progresso_callback=self._allin_progresso_juntar,

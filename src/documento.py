@@ -100,6 +100,29 @@ def remover_paragrafo(paragrafo: Paragraph) -> None:
     elemento.getparent().remove(elemento)
 
 
+def _encolher_paragrafo(paragrafo: Paragraph) -> None:
+    """Esvazia e encolhe um parágrafo ao mínimo (fonte e entrelinha de 1pt,
+    sem espaçamento) em vez de removê-lo. Usado sempre que um parágrafo é o
+    ÚLTIMO elemento do corpo do documento antes do `sectPr`: o Word sempre
+    exige ALGUM parágrafo nessa posição — se o conteúdo anterior (tabela ou
+    capa) já preenche a página quase até o fim, até um parágrafo vazio de
+    tamanho normal não cabe mais no que sobrou e transborda para uma página
+    nova, inteiramente em branco. Um parágrafo minúsculo nessa posição evita
+    esse transbordo sem deixar o corpo do documento sem nenhum parágrafo
+    antes do sectPr (o que teria o mesmo problema)."""
+    for run in list(paragrafo.runs):
+        run.text = ""
+    if not paragrafo.runs:
+        paragrafo.add_run("")
+    for run in paragrafo.runs:
+        run.font.size = Pt(1)
+    formato = paragrafo.paragraph_format
+    formato.space_before = Pt(0)
+    formato.space_after = Pt(0)
+    formato.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+    formato.line_spacing = Pt(1)
+
+
 def _remover_ate(doc: Document, elemento_final) -> None:
     """Remove todo o conteúdo do corpo do documento desde o início até
     `elemento_final`, exclusive — usado para apagar o bloco da capa (que vem
@@ -119,7 +142,15 @@ def _remover_ate(doc: Document, elemento_final) -> None:
 def _remover_de(doc: Document, elemento_inicial) -> None:
     """Remove `elemento_inicial` e tudo que vem depois dele no corpo do
     documento, preservando o `sectPr` final (tamanho/margens da página) —
-    usado para apagar o bloco de título+tabela ao montar só a capa."""
+    usado para apagar o bloco de título+tabela ao montar só a capa.
+
+    Não deixa o corpo terminar sem nenhum parágrafo antes do `sectPr`: sem
+    isso, o Word insere um parágrafo padrão ao abrir/converter o arquivo,
+    que pode transbordar para uma página em branco extra — mesmo problema
+    já visto (e corrigido) na tabela completa, ver `inserir_tabela_no_marcador`.
+    (Uma eventual quebra de página manual que sobre no parágrafo anterior —
+    ex.: a que separava capa e tabela no modelo — é limpa depois por
+    `_remover_quebras_de_pagina`, chamada ao final de cada `montar_*`.)"""
     body = doc.element.body
     removendo = False
     for filho in list(body):
@@ -129,6 +160,16 @@ def _remover_de(doc: Document, elemento_inicial) -> None:
             if filho.tag == qn("w:sectPr"):
                 break
             body.remove(filho)
+
+    sect_pr = body.find(qn("w:sectPr"))
+    anterior = sect_pr.getprevious() if sect_pr is not None else None
+    if anterior is None or anterior.tag != qn("w:p"):
+        paragrafo_final = OxmlElement("w:p")
+        if sect_pr is not None:
+            sect_pr.addprevious(paragrafo_final)
+        else:
+            body.append(paragrafo_final)
+        _encolher_paragrafo(Paragraph(paragrafo_final, doc))
 
 
 # ── Clonagem de aparência de célula/fonte a partir de uma tabela de origem ─
@@ -950,24 +991,8 @@ def inserir_tabela_no_marcador(doc: Document, paragrafo_marcador: Paragraph, cab
 
     # o parágrafo do marcador fica (não é removido, só esvaziado e
     # encolhido ao mínimo): no modelo padrão ele é o ÚLTIMO parágrafo do
-    # corpo do documento, logo após a tabela. O Word sempre exige um
-    # parágrafo depois de uma tabela nessa posição — quando a tabela já
-    # preenche a página quase até o fim (tabelas com muitas linhas), até
-    # um parágrafo vazio de tamanho normal não cabe mais no que sobrou e
-    # transborda para uma página nova, inteiramente em branco. Encolher
-    # esse parágrafo ao tamanho mínimo (fonte e entrelinha de 1pt, sem
-    # espaçamento) evita esse transbordo.
-    for run in list(paragrafo_marcador.runs):
-        run.text = ""
-    if not paragrafo_marcador.runs:
-        paragrafo_marcador.add_run("")
-    for run in paragrafo_marcador.runs:
-        run.font.size = Pt(1)
-    formato = paragrafo_marcador.paragraph_format
-    formato.space_before = Pt(0)
-    formato.space_after = Pt(0)
-    formato.line_spacing_rule = WD_LINE_SPACING.EXACTLY
-    formato.line_spacing = Pt(1)
+    # corpo do documento, logo após a tabela — ver `_encolher_paragrafo`.
+    _encolher_paragrafo(paragrafo_marcador)
     return tabela
 
 

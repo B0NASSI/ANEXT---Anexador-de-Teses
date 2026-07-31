@@ -5,6 +5,28 @@ Notas de atualização em 27/07/2026
 
 VERSÃO 3.0
 
+- Corrigida uma página em branco que voltou a aparecer na capa geral (a
+  primeira página, com o título da tese) em algumas teses — o modelo
+  tem uma quebra de página manual entre o bloco da capa e o bloco da
+  tabela, e ela sozinha empurrava uma página nova em branco mesmo
+  depois do restante ser removido. Esse bug, combinado com a forma
+  como o programa identifica onde a tabela completa termina e as capas
+  individuais começam, podia embaralhar a divisão das capas em teses
+  com muitos segurados (mostrando "Nenhuma das subpastas continha
+  arquivos PDF" mesmo com as capas geradas e divididas corretamente).
+
+- Corrigido: quando o número de subpastas numeradas não bate com o
+  número de segurados da tabela, o programa agora sempre avisa e pula
+  a etapa de juntar (como já devia) — antes, dependendo do caso, ele
+  tentava juntar mesmo assim e dava um erro confuso em vez do aviso.
+
+- Novo "ANEXT Launcher.exe": verifica automaticamente se há uma versão
+  mais nova publicada no GitHub antes de abrir o ANEXT. Sem internet ou
+  sem atualização, abre direto sem nenhuma tela extra; com atualização,
+  mostra uma janelinha (com a cara do ANEXT) baixando e aplicando,
+  com opção de pular. O programa principal agora é o "ANEXT.exe" — o
+  atalho do dia a dia passa a ser o launcher, não mais o exe direto.
+
 - Suporte a tabelas sem coluna de segurado, agrupadas por CNPJ (e por
   vigência, quando a tabela tiver essa coluna também) — caso da tese
   "Bloqueio de Rotatividade", que lista por empresa em vez de por

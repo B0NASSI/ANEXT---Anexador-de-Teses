@@ -101,7 +101,19 @@ def _montar_plano(doc: fitz.Document, pasta_saida: Path) -> tuple[list[tuple[Pat
         raise ValueError("O PDF precisa ter ao menos 2 páginas (capa geral e a tabela de segurados).")
 
     numero_topico = extrair_numero_topico(doc[0])
-    titulo_beneficio = linhas_relevantes(doc[1])[0] if doc.page_count > 1 and linhas_relevantes(doc[1]) else ""
+    linhas_pagina_tabela = linhas_relevantes(doc[1])
+    if not linhas_pagina_tabela:
+        # a 2a página (índice 1) devia ser sempre a "tabela completa" — se
+        # vier em branco (ex.: página em branco intrusa antes dela), o
+        # título fica vazio e a detecção de onde começam as capas
+        # individuais abaixo erra silenciosamente, embaralhando segurados.
+        # Falha alto e claro em vez de gerar uma divisão errada.
+        raise ValueError(
+            "A segunda página do PDF de capas está em branco ou sem texto "
+            "legível — não foi possível identificar a tabela completa para "
+            "dividir as capas corretamente."
+        )
+    titulo_beneficio = linhas_pagina_tabela[0]
 
     inicio_individuais = next(
         (idx for idx in range(1, doc.page_count) if eh_capa_individual(doc[idx], titulo_beneficio)),
