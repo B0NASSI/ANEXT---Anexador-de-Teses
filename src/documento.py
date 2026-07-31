@@ -102,15 +102,18 @@ def remover_paragrafo(paragrafo: Paragraph) -> None:
 
 def _remover_ate(doc: Document, elemento_final) -> None:
     """Remove todo o conteúdo do corpo do documento desde o início até
-    `elemento_final`, inclusive — usado para apagar o bloco da capa (que vem
-    antes) ao montar a página de tabela completa/segurado."""
+    `elemento_final`, exclusive — usado para apagar o bloco da capa (que vem
+    antes) ao montar a página de tabela completa/segurado. Precisa parar
+    ANTES de `elemento_final` (não incluí-lo), e não em `{{TITULO_CAPA}}`: o
+    parágrafo da capa costuma carregar a quebra de página manual que a
+    separava da tabela no modelo original, e essa quebra precisa ser
+    removida junto com o resto do bloco de capa (ver `_remover_quebras_de_pagina`
+    para o caso em que ela sobrevive noutra parte do documento)."""
     body = doc.element.body
     for filho in list(body):
-        if filho.tag == qn("w:sectPr"):
+        if filho is elemento_final or filho.tag == qn("w:sectPr"):
             break
         body.remove(filho)
-        if filho is elemento_final:
-            break
 
 
 def _remover_de(doc: Document, elemento_inicial) -> None:
@@ -990,12 +993,14 @@ def montar_capa(caminho_modelo: str, titulo: str, topico: str | None = None) -> 
         paragrafo_titulo = localizar_paragrafo_marcador(doc, MARCADOR_TITULO)
         if paragrafo_titulo is not None:
             _remover_de(doc, paragrafo_titulo._p)
+        _remover_quebras_de_pagina(doc)
         return doc
 
     substituir_titulo(doc, titulo)
     marcador = localizar_paragrafo_marcador(doc)
     if marcador is not None:
         remover_paragrafo(marcador)
+    _remover_quebras_de_pagina(doc)
     return doc
 
 
@@ -1006,7 +1011,9 @@ def montar_tabela_completa(caminho_modelo: str, titulo: str, cabecalhos: list[st
 
     paragrafo_capa = localizar_paragrafo_marcador(doc, MARCADOR_TITULO_CAPA)
     if paragrafo_capa is not None:
-        _remover_ate(doc, paragrafo_capa._p)
+        paragrafo_titulo = localizar_paragrafo_marcador(doc, MARCADOR_TITULO)
+        if paragrafo_titulo is not None:
+            _remover_ate(doc, paragrafo_titulo._p)
 
     substituir_titulo(doc, titulo)
     marcador = localizar_paragrafo_marcador(doc)
@@ -1014,6 +1021,7 @@ def montar_tabela_completa(caminho_modelo: str, titulo: str, cabecalhos: list[st
         raise ValueError('Marcador "{{TABELA}}" não encontrado no modelo.')
     inserir_tabela_no_marcador(doc, marcador, cabecalhos, linhas, indice_nome, tabela_referencia,
                                larguras_colunas)
+    _remover_quebras_de_pagina(doc)
     return doc
 
 
@@ -1024,7 +1032,9 @@ def montar_pagina_segurado(caminho_modelo: str, nome_segurado: str, linhas_segur
 
     paragrafo_capa = localizar_paragrafo_marcador(doc, MARCADOR_TITULO_CAPA)
     if paragrafo_capa is not None:
-        _remover_ate(doc, paragrafo_capa._p)
+        paragrafo_titulo = localizar_paragrafo_marcador(doc, MARCADOR_TITULO)
+        if paragrafo_titulo is not None:
+            _remover_ate(doc, paragrafo_titulo._p)
 
     substituir_titulo(doc, nome_segurado)
     marcador = localizar_paragrafo_marcador(doc)
@@ -1032,7 +1042,21 @@ def montar_pagina_segurado(caminho_modelo: str, nome_segurado: str, linhas_segur
         raise ValueError('Marcador "{{TABELA}}" não encontrado no modelo.')
     inserir_tabela_no_marcador(doc, marcador, cabecalhos, linhas_segurado, indice_nome, tabela_referencia,
                                larguras_colunas)
+    _remover_quebras_de_pagina(doc)
     return doc
+
+
+def _remover_quebras_de_pagina(doc: Document) -> None:
+    """Remove quebras de página manuais (`w:br` tipo "page") que sobrarem no
+    documento montado. Cada variante de página (capa / tabela completa /
+    por segurado) é exportada para um PDF próprio e inserida diretamente no
+    PDF final — uma quebra manual residual (ex.: a que separava capa e
+    tabela no modelo original, embutida no próprio parágrafo do marcador)
+    empurra o restante do documento para uma segunda página, que sai em
+    branco no PDF exportado."""
+    for br in list(doc.element.body.iter(qn("w:br"))):
+        if br.get(qn("w:type")) == "page":
+            br.getparent().remove(br)
 
 
 def _termina_com_quebra_pagina(doc: Document) -> bool:
