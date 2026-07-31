@@ -67,16 +67,13 @@ pyz_app = PYZ(a_app.pure)
 exe_app = EXE(
     pyz_app,
     a_app.scripts,
-    a_app.binaries,
-    a_app.datas,
     [],
+    exclude_binaries=True,
     name='ANEXT',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -84,6 +81,19 @@ exe_app = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=['assets/pdf.ico'],
+)
+
+# onedir: pasta com o .exe + dependências soltas ao lado (_internal), em vez
+# de um único .exe que se autoextrai pra uma pasta temporária a cada execução
+# — isso é o que tornava a abertura lenta (~30s, reextraindo tudo sempre).
+coll_app = COLLECT(
+    exe_app,
+    a_app.binaries,
+    a_app.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='ANEXT',
 )
 
 # ---------------------------------------------------------------------------
@@ -114,19 +124,19 @@ a_launcher.datas = [x for x in a_launcher.datas if not x[0].lower().startswith(_
 
 pyz_launcher = PYZ(a_launcher.pure)
 
+# contents_directory: nome de pasta próprio (_internal_launcher) pra não
+# colidir com o _internal do ANEXT.exe quando os dois ficam lado a lado na
+# mesma pasta de instalação
 exe_launcher = EXE(
     pyz_launcher,
     a_launcher.scripts,
-    a_launcher.binaries,
-    a_launcher.datas,
     [],
+    exclude_binaries=True,
     name='ANEXT Launcher',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -134,4 +144,15 @@ exe_launcher = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=['assets/pdf.ico'],
+    contents_directory='_internal_launcher',
+)
+
+coll_launcher = COLLECT(
+    exe_launcher,
+    a_launcher.binaries,
+    a_launcher.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='ANEXT Launcher',
 )

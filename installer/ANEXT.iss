@@ -1,5 +1,5 @@
 #define MyAppName "ANEXT — Anexador de Teses"
-#define MyAppVersion "3.1"
+#define MyAppVersion "3.2"
 #define MyAppPublisher "Rodriguez & Sousa Advogados Associados"
 #define MyAppExeName "ANEXT Launcher.exe"
 #define SourceDir "C:\Users\Pichau\Desktop\ANEXT"
@@ -16,7 +16,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=output
-OutputBaseFilename=ANEXT Setup v3.1
+OutputBaseFilename=ANEXT Setup v3.2
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -32,7 +32,9 @@ Name: "desktopicon"; Description: "Criar um atalho na área de trabalho"; GroupD
 
 [Files]
 Source: "{#SourceDir}\ANEXT.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#SourceDir}\ANEXT Launcher.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\_internal_launcher\*"; DestDir: "{app}\_internal_launcher"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#SourceDir}\versao.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]

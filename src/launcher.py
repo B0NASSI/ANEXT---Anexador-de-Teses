@@ -10,15 +10,18 @@ Fluxo:
   4. Com update -> mostra janela (versão atual, nova, barra de progresso). A
      atualização é obrigatória: não tem botão de pular, e fechar a janela
      não cancela nada.
-     - baixa o asset para arquivo temporário
-     - valida o tamanho baixado
-     - fecha qualquer ANEXT.exe que esteja rodando (senão o arquivo fica
-       bloqueado na hora de substituir)
-     - faz backup do ANEXT.exe atual
-     - substitui o ANEXT.exe e atualiza versao.txt
+     - baixa o .zip do asset para arquivo temporário e valida o tamanho
+     - extrai o .zip numa pasta de preparo (staging) e confere que o
+       ANEXT.exe e a pasta _internal vieram completos, ANTES de mexer em
+       qualquer coisa já instalada
+     - fecha qualquer ANEXT.exe que esteja rodando (senão os arquivos ficam
+       bloqueados na hora de substituir)
+     - faz backup do ANEXT.exe + _internal atuais (onedir: o app é um par
+       exe+pasta, não mais um único arquivo)
+     - move os arquivos preparados para o lugar e atualiza versao.txt
      - abre o ANEXT.exe atualizado e fecha o launcher
   5. Qualquer falha após o backup -> restaura o backup e abre a versão anterior
-     Falha antes do backup (download/validação) -> nada foi tocado, só abre a versão existente
+     Falha antes do backup (download/extração/validação) -> nada foi tocado, só abre a versão existente
      Backup inexistente numa restauração -> avisa o usuário e não mexe em nada
 """
 import os
@@ -28,6 +31,7 @@ import sys
 import tempfile
 import threading
 import time
+import zipfile
 from pathlib import Path
 
 import requests
@@ -44,7 +48,7 @@ import visual
 # ---------------------------------------------------------------------------
 GITHUB_OWNER = "B0NASSI"
 GITHUB_REPO = "ANEXT---Anexador-de-Teses"
-ASSET_NAME = "ANEXT.exe"        # nome do arquivo anexado na release
+ASSET_NAME = "ANEXT-app.zip"     # nome do arquivo anexado na release (ANEXT.exe + _internal/ zipados)
 REQUEST_TIMEOUT = 10             # segundos para consultas de rede
 DOWNLOAD_CHUNK_SIZE = 65536
 
@@ -102,7 +106,10 @@ def get_base_dir() -> Path:
 
 BASE_DIR = get_base_dir()
 APP_EXE = BASE_DIR / "ANEXT.exe"
+APP_INTERNAL = BASE_DIR / "_internal"
 BACKUP_EXE = BASE_DIR / "ANEXT_backup.exe"
+BACKUP_INTERNAL = BASE_DIR / "_internal_backup"
+STAGING_DIR = BASE_DIR / "_update_staging"
 VERSION_FILE = BASE_DIR / "versao.txt"
 
 
@@ -211,25 +218,56 @@ def fechar_anext_em_execucao() -> None:
     time.sleep(0.5)  # da um tempinho pro Windows liberar o handle do arquivo
 
 
-def apply_update(tmp_path: Path, new_version: str):
-    """Fecha o ANEXT em execução, faz backup, substitui o ANEXT.exe e
-    atualiza versao.txt.
+def apply_update(zip_path: Path, new_version: str):
+    """Extrai o .zip da nova versão numa pasta de preparo, fecha o ANEXT em
+    execução, faz backup do ANEXT.exe + _internal atuais e só então move os
+    arquivos preparados para o lugar (onedir: o app é um par exe+pasta, não
+    mais um único arquivo).
 
     Se falhar após o backup ser criado, restaura o backup automaticamente.
     """
     backup_created = False
+    if STAGING_DIR.exists():
+        shutil.rmtree(STAGING_DIR, ignore_errors=True)
+
     try:
+        with zipfile.ZipFile(zip_path) as zf:
+            zf.extractall(STAGING_DIR)
+
+        staged_exe = STAGING_DIR / "ANEXT.exe"
+        staged_internal = STAGING_DIR / "_internal"
+        if not staged_exe.is_file() or not staged_internal.is_dir():
+            raise IOError(
+                "Pacote de atualização inválido: ANEXT.exe ou _internal não "
+                "encontrados dentro do .zip baixado."
+            )
+
         fechar_anext_em_execucao()
 
-        if APP_EXE.exists():
-            shutil.copy2(APP_EXE, BACKUP_EXE)
-            backup_created = True
+        if BACKUP_EXE.exists():
+            BACKUP_EXE.unlink()
+        if BACKUP_INTERNAL.exists():
+            shutil.rmtree(BACKUP_INTERNAL)
 
-        os.replace(tmp_path, APP_EXE)
+        if APP_EXE.exists():
+            shutil.move(str(APP_EXE), str(BACKUP_EXE))
+        if APP_INTERNAL.exists():
+            shutil.move(str(APP_INTERNAL), str(BACKUP_INTERNAL))
+        backup_created = True
+
+        shutil.move(str(staged_exe), str(APP_EXE))
+        shutil.move(str(staged_internal), str(APP_INTERNAL))
         VERSION_FILE.write_text(new_version, encoding="utf-8")
     except Exception:
-        if backup_created and BACKUP_EXE.exists():
-            shutil.copy2(BACKUP_EXE, APP_EXE)
+        if backup_created:
+            if APP_EXE.exists():
+                APP_EXE.unlink()
+            if APP_INTERNAL.exists():
+                shutil.rmtree(APP_INTERNAL, ignore_errors=True)
+            if BACKUP_EXE.exists():
+                shutil.move(str(BACKUP_EXE), str(APP_EXE))
+            if BACKUP_INTERNAL.exists():
+                shutil.move(str(BACKUP_INTERNAL), str(APP_INTERNAL))
         elif not BACKUP_EXE.exists():
             messagebox.showwarning(
                 "Atualização",
@@ -237,6 +275,8 @@ def apply_update(tmp_path: Path, new_version: str):
                 "Nada foi substituído.",
             )
         raise
+    finally:
+        shutil.rmtree(STAGING_DIR, ignore_errors=True)
 
 
 def log_error(context: str, exc: Exception):
@@ -348,7 +388,7 @@ class UpdaterUI:
     def _download_and_apply(self):
         tmp_path = None
         try:
-            fd, tmp_name = tempfile.mkstemp(dir=str(BASE_DIR), suffix=".tmp")
+            fd, tmp_name = tempfile.mkstemp(dir=str(BASE_DIR), suffix=".zip")
             os.close(fd)
             tmp_path = Path(tmp_name)
 

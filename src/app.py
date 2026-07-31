@@ -488,7 +488,7 @@ class AplicativoDivisorPDF:
         self._imagem_logo = _carregar_imagem_altura(_caminho_recurso("assets/Logo RS completa colorida.png"), 24)
         tk.Label(rodape, image=self._imagem_logo, borderwidth=0, background=tema.COR_FUNDO).pack(side=LEFT)
 
-        ttk.Label(rodape, text="versão 3.1", bootstyle="secondary", font=("Segoe UI", 8)).pack(side=RIGHT)
+        ttk.Label(rodape, text="versão 3.2", bootstyle="secondary", font=("Segoe UI", 8)).pack(side=RIGHT)
 
     def _abrir_manual(self):
         janela = ttk.Toplevel(self.root)
