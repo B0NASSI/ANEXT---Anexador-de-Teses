@@ -202,8 +202,16 @@ def _posicionar_um_pouco_acima_do_centro(root, largura: int, altura: int) -> Non
 def _posicionar_sobre_janela(referencia, janela, largura: int, altura: int) -> None:
     """Centraliza `janela` sobre `referencia` (a janela principal) — usa a
     posição ATUAL dela na tela, então a caixa acompanha o monitor em que o
-    ANEXT estiver, em vez de sempre abrir no monitor primário."""
+    ANEXT estiver, em vez de sempre abrir no monitor primário.
+
+    Se `referencia` estiver minimizada, o Windows reporta a posição dela
+    como algo em torno de -32000,-32000 (valor sentinela de janela
+    iconificada) — sem esse restore, a caixa nasceria fora da tela, visível
+    pro Windows (bloqueando o clique) mas invisível pra pessoa."""
     referencia.update_idletasks()
+    if referencia.state() == "iconic":
+        referencia.deiconify()
+        referencia.update_idletasks()
     x = referencia.winfo_rootx() + (referencia.winfo_width() - largura) // 2
     y = referencia.winfo_rooty() + max((referencia.winfo_height() - altura) // 2 - 50, 0)
     janela.geometry(f"{largura}x{altura}+{x}+{y}")
@@ -488,7 +496,7 @@ class AplicativoDivisorPDF:
         self._imagem_logo = _carregar_imagem_altura(_caminho_recurso("assets/Logo RS completa colorida.png"), 24)
         tk.Label(rodape, image=self._imagem_logo, borderwidth=0, background=tema.COR_FUNDO).pack(side=LEFT)
 
-        ttk.Label(rodape, text="versão 3.2", bootstyle="secondary", font=("Segoe UI", 8)).pack(side=RIGHT)
+        ttk.Label(rodape, text="versão 3.3", bootstyle="secondary", font=("Segoe UI", 8)).pack(side=RIGHT)
 
     def _abrir_manual(self):
         janela = ttk.Toplevel(self.root)

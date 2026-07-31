@@ -3,6 +3,16 @@ ANEXT - Anexador de Teses
 Notas de atualização em 31/07/2026
 
 
+VERSÃO 3.3
+
+- Corrigido: se a janela do ANEXT estivesse minimizada no momento em que
+  uma caixa de confirmação precisasse aparecer (ex.: "Confirmar antes de
+  juntar"), ela abria fora da tela — o clique parecia não fazer nada
+  porque a caixa, na verdade, estava esperando resposta só que invisível.
+  Agora a janela principal é restaurada automaticamente antes da caixa
+  aparecer.
+
+
 VERSÃO 3.2
 
 - Abertura muito mais rápida: o ANEXT.exe e o ANEXT Launcher.exe deixaram
