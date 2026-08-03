@@ -1,0 +1,3 @@
+- As notas de atualização passaram a ficar dentro do próprio ANEXT — clique
+  em "Notas de atualização", ao lado do "Manual rápido", para ver o
+  histórico de versões sem precisar abrir nenhum arquivo separado.

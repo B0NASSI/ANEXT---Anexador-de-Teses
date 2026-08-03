@@ -1,0 +1,14 @@
+- Abertura muito mais rápida: o ANEXT.exe e o ANEXT Launcher.exe deixaram
+  de se autoextrair inteiros para uma pasta temporária a cada execução —
+  agora ficam prontos numa pasta própria (com uma subpasta "_internal" ao
+  lado do .exe) e abrem quase na hora, em vez de levar ~30 segundos.
+
+- Como consequência, a atualização automática agora baixa e aplica um
+  pacote .zip (o programa inteiro) em vez de um único arquivo .exe — o
+  restante do funcionamento (obrigatória, com backup e restauração
+  automática em caso de falha) continua igual.
+
+- Novo instalador ("ANEXT Setup.exe", feito com Inno Setup): instala em
+  uma pasta do usuário (sem pedir senha de administrador), cria o atalho
+  "ANEXT" na área de trabalho e uma entrada em "Adicionar ou remover
+  programas" para desinstalar de forma limpa.

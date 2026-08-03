@@ -1,38 +1,3 @@
-ANEXT - Anexador de Teses
-
-Notas de atualização em 31/07/2026
-
-
-VERSÃO 3.3
-
-- Corrigido: se a janela do ANEXT estivesse minimizada no momento em que
-  uma caixa de confirmação precisasse aparecer (ex.: "Confirmar antes de
-  juntar"), ela abria fora da tela — o clique parecia não fazer nada
-  porque a caixa, na verdade, estava esperando resposta só que invisível.
-  Agora a janela principal é restaurada automaticamente antes da caixa
-  aparecer.
-
-
-VERSÃO 3.2
-
-- Abertura muito mais rápida: o ANEXT.exe e o ANEXT Launcher.exe deixaram
-  de se autoextrair inteiros para uma pasta temporária a cada execução —
-  agora ficam prontos numa pasta própria (com uma subpasta "_internal" ao
-  lado do .exe) e abrem quase na hora, em vez de levar ~30 segundos.
-
-- Como consequência, a atualização automática agora baixa e aplica um
-  pacote .zip (o programa inteiro) em vez de um único arquivo .exe — o
-  restante do funcionamento (obrigatória, com backup e restauração
-  automática em caso de falha) continua igual.
-
-- Novo instalador ("ANEXT Setup.exe", feito com Inno Setup): instala em
-  uma pasta do usuário (sem pedir senha de administrador), cria o atalho
-  "ANEXT" na área de trabalho e uma entrada em "Adicionar ou remover
-  programas" para desinstalar de forma limpa.
-
-
-VERSÃO 3.0
-
 - Corrigida uma página em branco que voltou a aparecer na capa geral (a
   primeira página, com o título da tese) em algumas teses — o modelo
   tem uma quebra de página manual entre o bloco da capa e o bloco da
@@ -73,9 +38,9 @@ VERSÃO 3.0
   monitor. Agora todas acompanham a posição atual da janela do ANEXT.
 
 - Corrigido um erro ("FzErrorSystem...") ao gerar capas com título de
-  tese muito longo dentro de uma pasta da tese  — o arquivo intermediário 
-  das capas usava o título inteiro como nome, o  que podia estourar o limite 
-  de 260 caracteres de caminho do Windows. Agora sempre usa o nome curto 
+  tese muito longo dentro de uma pasta da tese  — o arquivo intermediário
+  das capas usava o título inteiro como nome, o  que podia estourar o limite
+  de 260 caracteres de caminho do Windows. Agora sempre usa o nome curto
   "Capas Geradas" diretamente (geralmente na tese de 60 dias).
 
 - Mais resistente a bloqueios temporários de arquivo (antivírus,
@@ -147,71 +112,3 @@ VERSÃO 3.0
 - Nova aba "All-in-one" (primeira aba do programa): roda em sequência
   automática as etapas de Gerar capas → Dividir capas → Juntar PDFs
   (no modo "Tese completa") num único clique.
-
-
-VERSÃO 2.2
-
-- A aba "Compactar PDF" foi removida do programa enquanto a ferramenta
-  passa por desenvolvimento e testes. Volta em uma próxima atualização.
-
-- Menu de botão direito (Recortar, Copiar, Colar e Selecionar tudo) em
-  todos os campos de texto do programa.
-
-- A janela do programa agora pode ser redimensionada e maximizada
-  livremente — o banner do topo se ajusta à nova largura.
-
-- O manual rápido ganhou a etapa "0. Gere as capas".
-
-- Aviso antes de sobrescrever: se já existe um PDF (ou Word) gerado
-  com o mesmo título na pasta de salvamento, o programa pede
-  confirmação antes de substituir.
-
-- O modo "Colar texto" está em desenvolvimento e aparece desativado
-  ("em breve") — por enquanto, use sempre a importação do .docx.
-
-- O botão "Procurar..." de importar o .docx da tabela fica ao lado do
-  campo, em destaque, para não ser confundido com o botão de baixar o
-  documento base.
-
-- Opção de gerar também um arquivo Word (.docx) junto com o PDF.
-
-- Aviso na tela: se a tabela ocupar mais de uma página, desative a
-  opção "Repetir linhas de cabeçalho" — caso contrário, o programa não
-  conseguirá ler os dados corretamente.
-
-- Botão "Baixar documento base das tabelas": salva um documento Word
-  em branco, já com as margens corretas, para montar a tabela de
-  segurados antes de importar — evita erros de formatação.
-
-- Quando o mesmo segurado aparece em linhas separadas da tabela (com
-  outros segurados no meio), cada ocorrência vira uma página própria —
-  linhas seguidas do mesmo segurado continuam sendo agrupadas numa
-  única página, normalmente.
-
-- A coluna de nomes é reconhecida em qualquer variação de gênero e
-  número: EMPREGADA, EMPREGADAS, EMPREGADO(A), EMPREGADOS (AS) etc. —
-  valendo também para a identificação do tipo da tabela no catálogo de
-  larguras.
-
-- Reprodução fiel da tabela importada: as linhas são copiadas inteiras do
-  documento original, preservando a formatação aplicada em trechos
-  específicos (negrito e cor de fonte pontuais, como datas de DIB em
-  laranja), as mesclagens verticais de todas as colunas (ex.: "Processo",
-  "Diferença entre DCB e DIB") e as setas ou outras formas desenhadas
-  sobre a tabela, na posição original — tanto na tabela completa quanto
-  na página de cada segurado (cada página leva apenas a seta do próprio
-  segurado).
-
-- O Gerador de Capas FAP passou a fazer parte do ANEXT, como aba "Gerar
-  capas" (primeiro passo do fluxo de trabalho). Informe o número do
-  tópico, o título da tese e a tabela de segurados (importada de um
-  .docx) — o programa gera um PDF com a capa geral, a tabela completa
-  e uma capa por segurado, pronto para a aba "Dividir capas".
-
-
-VERSÃO 2.1
-
-- Programa mais leve: o instalador caiu de 62,5 MB para 38,6 MB
-  (remoção das bibliotecas numpy e pikepdf, substituídas por
-  equivalentes já embutidos), sem nenhuma mudança na aparência ou
-  nas funcionalidades.

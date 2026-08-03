@@ -38,95 +38,169 @@ NOME_APP = "ANEXT - Anexador de Teses"
 DESCRICAO_APP = "Gera, divide e junta os documentos de cada segurado da tese em um PDF"
 
 TEXTO_MANUAL = """\
-ATALHO: FAÇA TUDO DE UMA VEZ  (aba "All-in-one")
-
-  Faz de uma vez as etapas 0, 2 e 3 abaixo: gera as capas, divide
-  pelas subpastas dos segurados e junta tudo num PDF final da tese.
-
-  Antes de usar, organize as pastas dos segurados (etapa 1, abaixo).
-  Se elas ainda não existirem quando você gerar, as capas saem soltas
-  na pasta da tese e a etapa de juntar é pulada — dá pra organizar
-  depois e rodar de novo só pra gerar o PDF final.
-
-  Tudo fica salvo direto na pasta da tese, sem subpasta própria: as
-  capas geradas ("Capas Geradas.pdf"), as capas já divididas (uma em
-  cada subpasta) e o PDF final da tese inteira.
+ANEXT — Anexador de Teses
+Ferramenta da equipe de revisão de insumos do FAP
+Rodriguez & Sousa Advogados Associados
 
 
-0. GERE AS CAPAS  (aba "Gerar capas")
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+COMO FUNCIONA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  Informe o número do tópico, o título da tese e a tabela de
-  segurados (importada de um .docx ou colada do Word). O programa
-  gera um PDF com a capa geral, a tabela completa e uma capa por
-  segurado — é o arquivo que entra na aba "Dividir capas".
+O ANEXT monta os anexos da tese FAP em três etapas:
 
-  Requer o Microsoft Word instalado no computador.
+  1. Gera as capas individuais de cada segurado
+  2. Divide essas capas e coloca cada uma na pasta do segurado
+  3. Junta todos os documentos de cada segurado num PDF final
 
-
-1. ORGANIZE AS PASTAS
-
-  Crie uma pasta para cada segurado:
-
-        1. NOME DO SEGURADO
-        2. NOME DO SEGURADO
-        3. NOME DO SEGURADO
-
-  Dentro de cada pasta, numere os arquivos na ordem em que eles
-  devem aparecer no PDF final:
-
-        0. Capa  (já vem da aba "Dividir capas")
-        1. Tela FAP
-        2. CAT
-        3. Laudo INSS
-        4. INFBEN
-        5. Extrato Previdenciário
-        6. Petição Inicial
-        7. Laudo da Perícia Judicial
-        8. Sentença
-
-  Quer encaixar um documento novo entre dois que já existem? Use
-  um número com casa decimal, sem precisar renumerar o resto:
-
-        2. Laudo INSS
-        2.1 Documento complementar
-        2.2 Novo laudo
-        3. INFBEN
-
-  IMPORTANTE: só entram no PDF final os arquivos que começam com
-  número (0, 1, 2, 2.1...). Os outros são ignorados.
+A aba "All-in-one" faz as três etapas de uma vez.
 
 
-2. DIVIDIR CAPAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ANTES DE COMEÇAR — ORGANIZE AS PASTAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  Selecione o PDF de capas e a pasta de destino.
+Crie uma pasta por segurado dentro da pasta da tese, numerada
+em ordem crescente:
 
-  • Se as pastas dos segurados já existirem, cada capa cai sozinha,
-    direto na pasta certa.
-  • Se ainda não existirem, todas as capas ficam juntas na pasta de
-    destino, já numeradas pra manter a ordem:
+    1. NOME DO SEGURADO
+    2. NOME DO SEGURADO
+    3. NOME DO SEGURADO
 
-        0. Capa NOME DO SEGURADO
-        0.1 Capa NOME DO SEGURADO
-        0.2 Capa NOME DO SEGURADO
-        ...
+Dentro de cada pasta, numere os documentos na ordem em que
+devem aparecer no PDF final:
+
+    1. Tela FAP
+    2. CAT
+    3. Laudo INSS
+    4. INFBEN
+    5. Extrato Previdenciário
+    6. Petição Inicial
+    7. Laudo da Perícia Judicial
+    8. Sentença
+
+A capa (0.) é gerada e inserida automaticamente pelo programa
+na aba "Dividir capas".
+
+Precisa encaixar um documento entre dois que já existem?
+Use decimal — sem precisar renumerar nada:
+
+    3. Laudo INSS
+    3.1 Complemento
+    3.2 Novo laudo
+    4. INFBEN
+
+ATENÇÃO: arquivos sem número no início do nome são ignorados.
+Verifique se não há documentos indesejados cujo nome começa
+com número seguido de ponto — eles serão lidos pelo programa.
+Exemplo problemático: "5501854.25.2010.8.24.0005"
 
 
-3. JUNTAR PDFS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PREPARAR A TABELA DE SEGURADOS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  Escolha um dos modos:
+Tanto a aba "All-in-one" quanto a aba "Gerar capas" precisam
+da tabela de segurados num documento base específico.
 
-  • Tese completa: junta todas as pastas numeradas em um só PDF.
-  • Pasta única: junta só os arquivos da pasta escolhida.
+  1. Clique em "Baixar documento base das tabelas" dentro
+     do programa e salve o arquivo na pasta da tese
+  2. Abra o documento e cole APENAS a tabela de segurados
+     (sem título, sem texto antes ou depois)
+  3. A tabela precisa ser única e contínua — não pode estar
+     dividida em partes ou separada em múltiplas tabelas
+  4. Se a tabela ocupar mais de uma página, desative a opção
+     "Repetir linhas de cabeçalho" no Word antes de salvar
 
-  Antes de gerar, o programa mostra a ordem que vai usar, pra você
-  confirmar.
+Requer o Microsoft Word instalado no computador.
 
 
-DICAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ABA ALL-IN-ONE  (caminho mais rápido)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  • Use 2.1, 2.2, 2.3... pra encaixar documentos sem renumerar tudo.
-  • Confira a lista antes de gerar. Depois de gerar, use o botão
-    "👁 Abrir PDF gerado" pra revisar o resultado antes de protocolar."""
+Faz tudo de uma vez: gera as capas, divide e junta num PDF final.
+
+  1. Preencha o número do tópico e o título da tese
+  2. Importe o documento base já preenchido com a tabela
+     (deve estar salvo na pasta da tese onde ficam os segurados)
+  3. A pasta de salvamento é preenchida automaticamente
+  4. Clique em "Gerar tese completa"
+
+Se as pastas dos segurados ainda não existirem, as capas saem
+soltas na pasta da tese — organize as pastas depois e rode
+novamente só a aba "Juntar PDFs".
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ABA GERAR CAPAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Gera o PDF de capas (capa geral + tabela completa + uma capa
+por segurado). O arquivo gerado entra na aba "Dividir capas".
+
+  1. Preencha o número do tópico e o título da tese
+  2. Importe o documento base já preenchido com a tabela
+     (deve estar salvo na pasta da tese onde ficam os segurados)
+  3. Selecione a pasta de salvamento
+  4. Clique em "Gerar capas"
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ABA DIVIDIR CAPAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Separa o PDF de capas em um arquivo por segurado.
+
+  1. Selecione o PDF de capas gerado na etapa anterior
+  2. Selecione a pasta de destino (a pasta da tese)
+  3. Clique em "Dividir PDF"
+
+Se as pastas dos segurados já existirem, cada capa vai direto
+para a pasta certa.
+
+Se não existirem, as capas ficam todas na pasta de destino,
+numeradas em ordem (0., 0.1, 0.2...) para manter a sequência.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ABA JUNTAR PDFS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Junta os documentos numerados em um único PDF.
+
+  • Tese completa — selecione a pasta da tese. Gera um PDF
+    único com todos os segurados, em ordem.
+
+  • Pasta única — selecione a pasta de um segurado específico.
+    Útil para corrigir ou remontar um segurado sem refazer tudo.
+
+Antes de gerar, o programa mostra a ordem exata dos documentos.
+Revise e confirme antes de gerar o PDF final.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DÚVIDAS FREQUENTES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"O programa não encontrou PDFs nas pastas"
+→ Verifique se os arquivos têm número no início do nome.
+  Arquivos sem número são ignorados. Verifique também se
+  não há arquivos indesejados cujo nome começa com número.
+
+"A capa foi para a pasta errada"
+→ O programa casa capa com pasta por ordem numérica.
+  Certifique-se de que o número de pastas bate com o número
+  de segurados no PDF de capas.
+
+"A tabela não foi importada corretamente"
+→ Verifique se a tabela está num documento único e contínuo,
+  sem divisões e sem texto antes ou depois. Desative
+  "Repetir linhas de cabeçalho" no Word e tente novamente.
+
+"Apareceu página em branco no PDF"
+→ Verifique se o documento base não tem quebras de página
+  manuais desnecessárias."""
 
 
 def _caminho_recurso(nome: str) -> str:
@@ -147,6 +221,25 @@ MODELO_CAPAS = Path(_caminho_recurso("modelo")) / "modelo.docx"
 SAIDA_PADRAO_CAPAS = _pasta_executavel() / "output"
 BASE_TABELAS = Path(_caminho_recurso("modelo")) / "BASE TABELAS.docx"
 CONFIG_CAPAS = _pasta_executavel() / "anext_config.json"
+
+NOME_PASTA_NOTAS = "NOTAS DE ATUALIZAÇÃO"
+
+
+def _versao_para_ordenacao(nome_sem_extensao: str):
+    # ordena "3.10" depois de "3.9" (numericamente, não como texto)
+    return tuple(int(p) if p.isdigit() else 0 for p in nome_sem_extensao.split("."))
+
+
+def _carregar_notas_atualizacao() -> str:
+    """Lê um arquivo .txt por versão em NOTAS DE ATUALIZAÇÃO/ (ex.: "3.4.txt")
+    e monta o histórico completo, da versão mais recente pra mais antiga."""
+    pasta = Path(_caminho_recurso(NOME_PASTA_NOTAS))
+    if not pasta.is_dir():
+        return "Nenhuma nota de atualização encontrada."
+
+    arquivos = sorted(pasta.glob("*.txt"), key=lambda p: _versao_para_ordenacao(p.stem), reverse=True)
+    blocos = [f"VERSÃO {arquivo.stem}\n\n{arquivo.read_text(encoding='utf-8').strip()}" for arquivo in arquivos]
+    return "\n\n\n".join(blocos) if blocos else "Nenhuma nota de atualização encontrada."
 
 # larguras padrão da tabela de capas (percentuais por coluna visual).
 # 7 colunas (vigência única): calibrado em render real para CNPJ, NIT e
@@ -431,6 +524,11 @@ class AplicativoDivisorPDF:
         ttk.Button(
             barra, text="❓ Manual rápido", command=self._abrir_manual, bootstyle="primary-link",
         ).pack(side=RIGHT)
+        self._imagem_notas = _carregar_imagem_altura(_caminho_recurso("assets/icons8-informações-50.png"), 14)
+        ttk.Button(
+            barra, text=" Notas de atualização", image=self._imagem_notas, compound=LEFT,
+            command=self._abrir_notas_atualizacao, bootstyle="primary-link",
+        ).pack(side=RIGHT, padx=(0, 8))
 
     def _montar_card_arquivos(self, pai):
         cartao = ttk.Labelframe(pai, text=" Arquivos ", padding=18, bootstyle="secondary")
@@ -496,7 +594,7 @@ class AplicativoDivisorPDF:
         self._imagem_logo = _carregar_imagem_altura(_caminho_recurso("assets/Logo RS completa colorida.png"), 24)
         tk.Label(rodape, image=self._imagem_logo, borderwidth=0, background=tema.COR_FUNDO).pack(side=LEFT)
 
-        ttk.Label(rodape, text="versão 3.3", bootstyle="secondary", font=("Segoe UI", 8)).pack(side=RIGHT)
+        ttk.Label(rodape, text="versão 3.5", bootstyle="secondary", font=("Segoe UI", 8)).pack(side=RIGHT)
 
     def _abrir_manual(self):
         janela = ttk.Toplevel(self.root)
@@ -517,6 +615,31 @@ class AplicativoDivisorPDF:
         corpo.pack(fill=BOTH, expand=True, padx=20, pady=(0, 14))
         corpo.text.insert("end", TEXTO_MANUAL)
         corpo.text.configure(font=("Consolas", 9), padx=10, pady=10, state=DISABLED)
+
+    def _abrir_notas_atualizacao(self):
+        janela = ttk.Toplevel(self.root)
+        janela.title("Notas de atualização")
+        janela.resizable(False, False)
+        _posicionar_sobre_janela(self.root, janela, 600, 560)
+        try:
+            janela.iconbitmap(_caminho_recurso("assets/pdf.ico"))
+        except tk.TclError:
+            pass
+
+        self._imagem_notas_titulo = _carregar_imagem_altura(_caminho_recurso("assets/icons8-informações-50.png"), 20)
+        ttk.Label(
+            janela, text=" Notas de atualização", image=self._imagem_notas_titulo, compound=LEFT,
+            font=("Segoe UI", 14, "bold"),
+        ).pack(anchor=W, padx=20, pady=(18, 2))
+        ttk.Label(
+            janela, text="Histórico de versões do ANEXT", bootstyle="secondary",
+        ).pack(anchor=W, padx=20, pady=(0, 12))
+
+        corpo = ScrolledText(janela, autohide=True, bootstyle="secondary")
+        corpo.pack(fill=BOTH, expand=True, padx=20, pady=(0, 14))
+        corpo.text.insert("end", _carregar_notas_atualizacao())
+        corpo.text.configure(font=("Consolas", 9), padx=10, pady=10, state=DISABLED)
+        corpo.text.see("1.0")
 
         ttk.Button(janela, text="Fechar", command=janela.destroy, bootstyle="secondary").pack(pady=(0, 18))
 

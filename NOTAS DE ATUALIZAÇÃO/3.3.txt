@@ -1,0 +1,6 @@
+- Corrigido: se a janela do ANEXT estivesse minimizada no momento em que
+  uma caixa de confirmação precisasse aparecer (ex.: "Confirmar antes de
+  juntar"), ela abria fora da tela — o clique parecia não fazer nada
+  porque a caixa, na verdade, estava esperando resposta só que invisível.
+  Agora a janela principal é restaurada automaticamente antes da caixa
+  aparecer.

@@ -5,12 +5,13 @@ assets_datas = [
     ('assets/pdf.ico', 'assets'),
     ('assets/folder interno.ico', 'assets'),
     ('assets/Logo RS completa colorida.png', 'assets'),
+    ('assets/icons8-informações-50.png', 'assets'),
 ]
 
 # ---------------------------------------------------------------------------
 # ANEXT.exe - programa principal
 # ---------------------------------------------------------------------------
-app_datas = list(assets_datas) + [('modelo', 'modelo')]
+app_datas = list(assets_datas) + [('modelo', 'modelo'), ('NOTAS DE ATUALIZAÇÃO', 'NOTAS DE ATUALIZAÇÃO')]
 app_binaries = []
 app_hiddenimports = ['win32com', 'win32com.client', 'pythoncom']
 for pacote in ('ttkbootstrap', 'PIL', 'fitz'):

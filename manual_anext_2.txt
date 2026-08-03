@@ -1,0 +1,163 @@
+ANEXT — Anexador de Teses
+Ferramenta da equipe de revisão de insumos do FAP
+Rodriguez & Sousa Advogados Associados
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+COMO FUNCIONA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+O ANEXT monta os anexos da tese FAP em três etapas:
+
+  1. Gera as capas individuais de cada segurado
+  2. Divide essas capas e coloca cada uma na pasta do segurado
+  3. Junta todos os documentos de cada segurado num PDF final
+
+A aba "All-in-one" faz as três etapas de uma vez.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ANTES DE COMEÇAR — ORGANIZE AS PASTAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Crie uma pasta por segurado dentro da pasta da tese, numerada
+em ordem crescente:
+
+    1. NOME DO SEGURADO
+    2. NOME DO SEGURADO
+    3. NOME DO SEGURADO
+
+Dentro de cada pasta, numere os documentos na ordem em que
+devem aparecer no PDF final:
+
+    1. Tela FAP
+    2. CAT
+    3. Laudo INSS
+    4. INFBEN
+    5. Extrato Previdenciário
+    6. Petição Inicial
+    7. Laudo da Perícia Judicial
+    8. Sentença
+
+A capa (0.) é gerada e inserida automaticamente pelo programa
+na aba "Dividir capas".
+
+Precisa encaixar um documento entre dois que já existem?
+Use decimal — sem precisar renumerar nada:
+
+    3. Laudo INSS
+    3.1 Complemento
+    3.2 Novo laudo
+    4. INFBEN
+
+ATENÇÃO: arquivos sem número no início do nome são ignorados.
+Verifique se não há documentos indesejados cujo nome começa
+com número seguido de ponto — eles serão lidos pelo programa.
+Exemplo problemático: "5501854.25.2010.8.24.0005"
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PREPARAR A TABELA DE SEGURADOS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Tanto a aba "All-in-one" quanto a aba "Gerar capas" precisam
+da tabela de segurados num documento base específico.
+
+  1. Clique em "Baixar documento base das tabelas" dentro
+     do programa e salve o arquivo na pasta da tese
+  2. Abra o documento e cole APENAS a tabela de segurados
+     (sem título, sem texto antes ou depois)
+  3. A tabela precisa ser única e contínua — não pode estar
+     dividida em partes ou separada em múltiplas tabelas
+  4. Se a tabela ocupar mais de uma página, desative a opção
+     "Repetir linhas de cabeçalho" no Word antes de salvar
+
+Requer o Microsoft Word instalado no computador.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ABA ALL-IN-ONE  (caminho mais rápido)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Faz tudo de uma vez: gera as capas, divide e junta num PDF final.
+
+  1. Preencha o número do tópico e o título da tese
+  2. Importe o documento base já preenchido com a tabela
+     (deve estar salvo na pasta da tese onde ficam os segurados)
+  3. A pasta de salvamento é preenchida automaticamente
+  4. Clique em "Gerar tese completa"
+
+Se as pastas dos segurados ainda não existirem, as capas saem
+soltas na pasta da tese — organize as pastas depois e rode
+novamente só a aba "Juntar PDFs".
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ABA GERAR CAPAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Gera o PDF de capas (capa geral + tabela completa + uma capa
+por segurado). O arquivo gerado entra na aba "Dividir capas".
+
+  1. Preencha o número do tópico e o título da tese
+  2. Importe o documento base já preenchido com a tabela
+     (deve estar salvo na pasta da tese onde ficam os segurados)
+  3. Selecione a pasta de salvamento
+  4. Clique em "Gerar capas"
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ABA DIVIDIR CAPAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Separa o PDF de capas em um arquivo por segurado.
+
+  1. Selecione o PDF de capas gerado na etapa anterior
+  2. Selecione a pasta de destino (a pasta da tese)
+  3. Clique em "Dividir PDF"
+
+Se as pastas dos segurados já existirem, cada capa vai direto
+para a pasta certa.
+
+Se não existirem, as capas ficam todas na pasta de destino,
+numeradas em ordem (0., 0.1, 0.2...) para manter a sequência.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ABA JUNTAR PDFS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Junta os documentos numerados em um único PDF.
+
+  • Tese completa — selecione a pasta da tese. Gera um PDF
+    único com todos os segurados, em ordem.
+
+  • Pasta única — selecione a pasta de um segurado específico.
+    Útil para corrigir ou remontar um segurado sem refazer tudo.
+
+Antes de gerar, o programa mostra a ordem exata dos documentos.
+Revise e confirme antes de gerar o PDF final.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DÚVIDAS FREQUENTES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"O programa não encontrou PDFs nas pastas"
+→ Verifique se os arquivos têm número no início do nome.
+  Arquivos sem número são ignorados. Verifique também se
+  não há arquivos indesejados cujo nome começa com número.
+
+"A capa foi para a pasta errada"
+→ O programa casa capa com pasta por ordem numérica.
+  Certifique-se de que o número de pastas bate com o número
+  de segurados no PDF de capas.
+
+"A tabela não foi importada corretamente"
+→ Verifique se a tabela está num documento único e contínuo,
+  sem divisões e sem texto antes ou depois. Desative
+  "Repetir linhas de cabeçalho" no Word e tente novamente.
+
+"Apareceu página em branco no PDF"
+→ Verifique se o documento base não tem quebras de página
+  manuais desnecessárias.

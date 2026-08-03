@@ -1,0 +1,3 @@
+- Manual rápido reescrito, mais completo e organizado por seções (como
+  funciona, organização das pastas, preparo da tabela de segurados, cada
+  aba do programa e dúvidas frequentes).

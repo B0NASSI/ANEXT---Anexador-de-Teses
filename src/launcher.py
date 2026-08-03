@@ -12,17 +12,23 @@ Fluxo:
      não cancela nada.
      - baixa o .zip do asset para arquivo temporário e valida o tamanho
      - extrai o .zip numa pasta de preparo (staging) e confere que o
-       ANEXT.exe e a pasta _internal vieram completos, ANTES de mexer em
-       qualquer coisa já instalada
+       ANEXT.exe veio, ANTES de mexer em qualquer coisa já instalada
      - fecha qualquer ANEXT.exe que esteja rodando (senão os arquivos ficam
        bloqueados na hora de substituir)
-     - faz backup do ANEXT.exe + _internal atuais (onedir: o app é um par
-       exe+pasta, não mais um único arquivo)
-     - move os arquivos preparados para o lugar e atualiza versao.txt
+     - MESCLA o conteúdo no lugar: sempre sobrescreve o ANEXT.exe; a pasta
+       _internal só é tocada nos arquivos que vieram dentro do .zip (se
+       vieram) — o resto do _internal já instalado fica intocado. Isso
+       permite pacotes de tamanho variável: uma atualização só de código
+       Python pode trazer só o ANEXT.exe (poucos MB), sem precisar
+       reenviar as dependências de terceiros (PyMuPDF, lxml, Tcl/Tk) que
+       raramente mudam entre versões.
+     - faz backup de cada arquivo antes de sobrescrever (ou marca que ele
+       era novo) e atualiza versao.txt
      - abre o ANEXT.exe atualizado e fecha o launcher
-  5. Qualquer falha após o backup -> restaura o backup e abre a versão anterior
-     Falha antes do backup (download/extração/validação) -> nada foi tocado, só abre a versão existente
-     Backup inexistente numa restauração -> avisa o usuário e não mexe em nada
+  5. Qualquer falha depois de começar a aplicar -> restaura cada arquivo
+     tocado a partir do backup individual (remove os que eram novos)
+     Falha antes de aplicar (download/extração/validação) -> nada foi tocado, só abre a versão existente
+     Nenhum arquivo chegou a ser tocado numa falha -> avisa o usuário e não mexe em nada
 """
 import os
 import shutil
@@ -107,8 +113,6 @@ def get_base_dir() -> Path:
 BASE_DIR = get_base_dir()
 APP_EXE = BASE_DIR / "ANEXT.exe"
 APP_INTERNAL = BASE_DIR / "_internal"
-BACKUP_EXE = BASE_DIR / "ANEXT_backup.exe"
-BACKUP_INTERNAL = BASE_DIR / "_internal_backup"
 STAGING_DIR = BASE_DIR / "_update_staging"
 VERSION_FILE = BASE_DIR / "versao.txt"
 
@@ -118,7 +122,12 @@ VERSION_FILE = BASE_DIR / "versao.txt"
 # ---------------------------------------------------------------------------
 def read_local_version() -> str:
     try:
-        return VERSION_FILE.read_text(encoding="utf-8").strip()
+        # utf-8-sig ignora um BOM no início do arquivo, se houver (algumas
+        # ferramentas gravam versao.txt com BOM; sem isso ele vira parte
+        # da string e some silenciosamente só porque parse_version() extrai
+        # dígitos e o ignora — mas read_local_version() sozinho não deveria
+        # devolver isso pro resto do programa/exibição)
+        return VERSION_FILE.read_text(encoding="utf-8-sig").strip()
     except FileNotFoundError:
         return "0.0.0"
 
@@ -218,57 +227,80 @@ def fechar_anext_em_execucao() -> None:
     time.sleep(0.5)  # da um tempinho pro Windows liberar o handle do arquivo
 
 
-def apply_update(zip_path: Path, new_version: str):
-    """Extrai o .zip da nova versão numa pasta de preparo, fecha o ANEXT em
-    execução, faz backup do ANEXT.exe + _internal atuais e só então move os
-    arquivos preparados para o lugar (onedir: o app é um par exe+pasta, não
-    mais um único arquivo).
+BACKUP_DIR = BASE_DIR / "_update_backup"
 
-    Se falhar após o backup ser criado, restaura o backup automaticamente.
+
+def apply_update(zip_path: Path, new_version: str):
+    """Extrai o .zip da nova versão numa pasta de preparo e MESCLA o
+    conteúdo no lugar (sobrescreve só os arquivos que vieram no pacote),
+    em vez de substituir o ANEXT.exe + _internal inteiros.
+
+    Isso permite pacotes de tamanho variável: uma atualização só de código
+    Python pode trazer somente o ANEXT.exe (poucos MB); uma atualização que
+    mexeu num template ou numa dependência de terceiros traz também só os
+    arquivos de _internal/ que realmente mudaram — o resto do _internal/
+    já instalado continua intocado.
+
+    Faz backup individual de cada arquivo que será sobrescrito (ou marca
+    que ele não existia, se for novo) antes de aplicar, e restaura tudo
+    automaticamente se algo falhar no meio do processo.
     """
-    backup_created = False
     if STAGING_DIR.exists():
         shutil.rmtree(STAGING_DIR, ignore_errors=True)
+    if BACKUP_DIR.exists():
+        shutil.rmtree(BACKUP_DIR, ignore_errors=True)
+
+    # manifesto: (caminho relativo a BASE_DIR, existia_antes)
+    manifesto = []
+
+    def _backup_e_aplicar(origem: Path, destino: Path, nome_relativo: str):
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        if destino.exists():
+            backup_destino = BACKUP_DIR / nome_relativo
+            backup_destino.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(destino, backup_destino)
+            manifesto.append((nome_relativo, True))
+        else:
+            manifesto.append((nome_relativo, False))
+        shutil.copy2(origem, destino)
 
     try:
         with zipfile.ZipFile(zip_path) as zf:
             zf.extractall(STAGING_DIR)
 
         staged_exe = STAGING_DIR / "ANEXT.exe"
+        if not staged_exe.is_file():
+            raise IOError("Pacote de atualização inválido: ANEXT.exe não encontrado no .zip baixado.")
+
         staged_internal = STAGING_DIR / "_internal"
-        if not staged_exe.is_file() or not staged_internal.is_dir():
-            raise IOError(
-                "Pacote de atualização inválido: ANEXT.exe ou _internal não "
-                "encontrados dentro do .zip baixado."
-            )
+        arquivos_internal = (
+            [p.relative_to(staged_internal) for p in staged_internal.rglob("*") if p.is_file()]
+            if staged_internal.is_dir()
+            else []
+        )
 
         fechar_anext_em_execucao()
 
-        if BACKUP_EXE.exists():
-            BACKUP_EXE.unlink()
-        if BACKUP_INTERNAL.exists():
-            shutil.rmtree(BACKUP_INTERNAL)
+        _backup_e_aplicar(staged_exe, APP_EXE, "ANEXT.exe")
+        for relativo in arquivos_internal:
+            _backup_e_aplicar(
+                staged_internal / relativo, APP_INTERNAL / relativo, str(Path("_internal") / relativo)
+            )
 
-        if APP_EXE.exists():
-            shutil.move(str(APP_EXE), str(BACKUP_EXE))
-        if APP_INTERNAL.exists():
-            shutil.move(str(APP_INTERNAL), str(BACKUP_INTERNAL))
-        backup_created = True
-
-        shutil.move(str(staged_exe), str(APP_EXE))
-        shutil.move(str(staged_internal), str(APP_INTERNAL))
         VERSION_FILE.write_text(new_version, encoding="utf-8")
     except Exception:
-        if backup_created:
-            if APP_EXE.exists():
-                APP_EXE.unlink()
-            if APP_INTERNAL.exists():
-                shutil.rmtree(APP_INTERNAL, ignore_errors=True)
-            if BACKUP_EXE.exists():
-                shutil.move(str(BACKUP_EXE), str(APP_EXE))
-            if BACKUP_INTERNAL.exists():
-                shutil.move(str(BACKUP_INTERNAL), str(APP_INTERNAL))
-        elif not BACKUP_EXE.exists():
+        if manifesto:
+            for nome_relativo, existia in reversed(manifesto):
+                destino = BASE_DIR / nome_relativo
+                if existia:
+                    shutil.copy2(BACKUP_DIR / nome_relativo, destino)
+                elif destino.exists():
+                    destino.unlink()
+                    pasta = destino.parent
+                    while pasta != BASE_DIR and pasta.is_dir() and not any(pasta.iterdir()):
+                        pasta.rmdir()
+                        pasta = pasta.parent
+        else:
             messagebox.showwarning(
                 "Atualização",
                 "Falha ao aplicar a atualização e nenhum backup foi encontrado.\n"
@@ -277,6 +309,7 @@ def apply_update(zip_path: Path, new_version: str):
         raise
     finally:
         shutil.rmtree(STAGING_DIR, ignore_errors=True)
+        shutil.rmtree(BACKUP_DIR, ignore_errors=True)
 
 
 def log_error(context: str, exc: Exception):

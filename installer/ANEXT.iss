@@ -1,8 +1,8 @@
 #define MyAppName "ANEXT — Anexador de Teses"
-#define MyAppVersion "3.3"
+#define MyAppVersion "3.4"
 #define MyAppPublisher "Rodriguez & Sousa Advogados Associados"
 #define MyAppExeName "ANEXT Launcher.exe"
-#define SourceDir "C:\Users\Pichau\Desktop\ANEXT"
+#define SourceDir "C:\Users\Pichau\Desktop\Petição Inicial\CODE\CLAUDE CODE\ANEXT\ANEXT - Instalador"
 
 [Setup]
 AppId={{6F2C9E1A-8B3D-4E7F-9A2C-5D1B6F0A3C8E}
@@ -16,7 +16,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=output
-OutputBaseFilename=ANEXT Setup v3.3
+OutputBaseFilename=ANEXT Setup v3.4
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
