@@ -6,6 +6,7 @@ Ponto de entrada do aplicativo. Execute com: python app.py
 
 import io
 import json
+import logging
 import os
 import re
 import shutil
@@ -24,6 +25,7 @@ from ttkbootstrap.widgets.scrolled import ScrolledText
 
 import documento
 import juntar_pdfs
+import log_setup
 import tabela
 import tema
 import visual
@@ -217,7 +219,20 @@ def _pasta_executavel() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def _ler_versao_local() -> str:
+    # mesmo versao.txt que o launcher lê/atualiza (fica ao lado do .exe,
+    # não dentro dos recursos empacotados) — assim o rodapé nunca fica
+    # defasado depois de uma atualização automática.
+    try:
+        return (_pasta_executavel() / "versao.txt").read_text(encoding="utf-8-sig").strip()
+    except FileNotFoundError:
+        return "?"
+
+
 MODELO_CAPAS = Path(_caminho_recurso("modelo")) / "modelo.docx"
+log_setup.configurar_logging("anext.log", _pasta_executavel())
+logger = logging.getLogger(__name__)
+
 SAIDA_PADRAO_CAPAS = _pasta_executavel() / "output"
 BASE_TABELAS = Path(_caminho_recurso("modelo")) / "BASE TABELAS.docx"
 CONFIG_CAPAS = _pasta_executavel() / "anext_config.json"
@@ -594,7 +609,7 @@ class AplicativoDivisorPDF:
         self._imagem_logo = _carregar_imagem_altura(_caminho_recurso("assets/Logo RS completa colorida.png"), 24)
         tk.Label(rodape, image=self._imagem_logo, borderwidth=0, background=tema.COR_FUNDO).pack(side=LEFT)
 
-        ttk.Label(rodape, text="versão 3.5", bootstyle="secondary", font=("Segoe UI", 8)).pack(side=RIGHT)
+        ttk.Label(rodape, text=f"versão {_ler_versao_local()}", bootstyle="secondary", font=("Segoe UI", 8)).pack(side=RIGHT)
 
     def _abrir_manual(self):
         janela = ttk.Toplevel(self.root)
@@ -2257,14 +2272,25 @@ class AplicativoDivisorPDF:
         if caminho_docx is not None:
             self._log_capas(f"Word gerado em:\n{caminho_docx}", "titulo")
 
+def _registrar_erro_callback(exc_type, exc_value, exc_traceback):
+    """Substitui o tratamento padrão do Tkinter para erros dentro de
+    callbacks (clique de botão etc.) — sem isso, com console=False no
+    build, esses erros só desaparecem, sem deixar rastro nenhum."""
+    logger.error("Erro não tratado em callback da interface", exc_info=(exc_type, exc_value, exc_traceback))
+
+
 def main():
+    logger.info("ANEXT iniciado.")
     root = ttk.Window(themename="litera", iconphoto=None)
+    root.report_callback_exception = _registrar_erro_callback
     try:
         AplicativoDivisorPDF(root)
     except Exception as exc:
+        logger.exception("Falha ao iniciar o aplicativo")
         messagebox.showerror("Erro ao iniciar", f"Não foi possível iniciar o aplicativo:\n{exc}", parent=root)
         raise
     root.mainloop()
+    logger.info("ANEXT encerrado.")
 
 
 if __name__ == "__main__":

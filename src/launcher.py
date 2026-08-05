@@ -30,6 +30,8 @@ Fluxo:
      Falha antes de aplicar (download/extração/validação) -> nada foi tocado, só abre a versão existente
      Nenhum arquivo chegou a ser tocado numa falha -> avisa o usuário e não mexe em nada
 """
+import hashlib
+import logging
 import os
 import shutil
 import subprocess
@@ -46,6 +48,7 @@ from PIL import ImageTk
 from ttkbootstrap.constants import BOTH, X
 from tkinter import messagebox
 
+import log_setup
 import tema
 import visual
 
@@ -55,6 +58,7 @@ import visual
 GITHUB_OWNER = "B0NASSI"
 GITHUB_REPO = "ANEXT---Anexador-de-Teses"
 ASSET_NAME = "ANEXT-app.zip"     # nome do arquivo anexado na release (ANEXT.exe + _internal/ zipados)
+CHECKSUM_ASSET_NAME = ASSET_NAME + ".sha256"  # arquivo-texto opcional com o sha256 do zip, ver gerar_checksum.py
 REQUEST_TIMEOUT = 10             # segundos para consultas de rede
 DOWNLOAD_CHUNK_SIZE = 65536
 
@@ -116,6 +120,9 @@ APP_INTERNAL = BASE_DIR / "_internal"
 STAGING_DIR = BASE_DIR / "_update_staging"
 VERSION_FILE = BASE_DIR / "versao.txt"
 
+log_setup.configurar_logging("launcher.log", BASE_DIR)
+logger = logging.getLogger(__name__)
+
 
 # ---------------------------------------------------------------------------
 # Versão local / comparação
@@ -154,32 +161,44 @@ def is_newer(remote: str, local: str) -> bool:
 # GitHub API
 # ---------------------------------------------------------------------------
 def get_latest_release():
-    """Retorna dict com {tag_name, asset_url, asset_size} ou None se indisponível."""
+    """Retorna dict com {tag_name, asset_url, asset_size, checksum_url} ou
+    None se indisponível. checksum_url vem None se a release não tiver o
+    arquivo de checksum (releases antigas, ou publicadas sem gerar_checksum.py)."""
     url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "anext-auto-updater"}
     try:
         response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
         data = response.json()
-    except (requests.RequestException, ValueError):
+    except (requests.RequestException, ValueError) as exc:
+        logger.info("Não foi possível consultar releases do GitHub: %s", exc)
         return None
 
     tag_name = data.get("tag_name")
     if not tag_name:
+        logger.info("Resposta de releases/latest sem tag_name.")
         return None
 
     asset_url = None
     asset_size = None
+    checksum_url = None
     for asset in data.get("assets", []):
         if asset.get("name") == ASSET_NAME:
             asset_url = asset.get("browser_download_url")
             asset_size = asset.get("size")
-            break
+        elif asset.get("name") == CHECKSUM_ASSET_NAME:
+            checksum_url = asset.get("browser_download_url")
 
     if not asset_url:
+        logger.info("Release %s não tem o asset %s.", tag_name, ASSET_NAME)
         return None
 
-    return {"tag_name": tag_name, "asset_url": asset_url, "asset_size": asset_size}
+    return {
+        "tag_name": tag_name,
+        "asset_url": asset_url,
+        "asset_size": asset_size,
+        "checksum_url": checksum_url,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +229,44 @@ def download_asset(url: str, dest: Path, expected_size, progress_callback):
         raise IOError(f"Tamanho do download não confere (esperado {expected_size}, obtido {actual_size}).")
 
 
+def _sha256_de_arquivo(caminho: Path) -> str:
+    h = hashlib.sha256()
+    with open(caminho, "rb") as f:
+        for bloco in iter(lambda: f.read(DOWNLOAD_CHUNK_SIZE), b""):
+            h.update(bloco)
+    return h.hexdigest()
+
+
+def verificar_checksum(zip_path: Path, checksum_url) -> None:
+    """Confere o SHA256 do .zip baixado contra o publicado na release
+    (gerar_checksum.py cria esse arquivo na hora de empacotar).
+
+    A validação de tamanho em download_asset() já cobre a maioria dos
+    downloads incompletos; isto cobre o caso raro de corrupção sem mudança
+    de tamanho. Se a release não tiver o arquivo de checksum (esquecido na
+    publicação, ou release antiga), não bloqueia a atualização — só avisa
+    no log, para não travar todo mundo por causa de uma release mal feita."""
+    if not checksum_url:
+        logger.warning("Release sem %s; pulando verificação de integridade do download.", CHECKSUM_ASSET_NAME)
+        return
+
+    try:
+        resposta = requests.get(checksum_url, headers={"User-Agent": "anext-auto-updater"}, timeout=REQUEST_TIMEOUT)
+        resposta.raise_for_status()
+        esperado = resposta.text.strip().split()[0].lower()
+    except (requests.RequestException, IndexError) as exc:
+        logger.warning("Não foi possível obter/ler o checksum da release (%s); pulando verificação.", exc)
+        return
+
+    obtido = _sha256_de_arquivo(zip_path)
+    if obtido.lower() != esperado:
+        raise IOError(
+            f"Checksum do download não confere (esperado {esperado}, obtido {obtido}). "
+            "O arquivo parece ter sido corrompido no download."
+        )
+    logger.info("Checksum do pacote de atualização confirmado (sha256 ok).")
+
+
 # ---------------------------------------------------------------------------
 # Aplicar atualização
 # ---------------------------------------------------------------------------
@@ -222,8 +279,8 @@ def fechar_anext_em_execucao() -> None:
             ["taskkill", "/F", "/IM", APP_EXE.name, "/T"],
             capture_output=True, timeout=10,
         )
-    except Exception:
-        pass  # se de fato houver algo travando o arquivo, o replace() abaixo revela o erro
+    except Exception as exc:
+        logger.warning("taskkill do ANEXT.exe falhou (%s); seguindo mesmo assim.", exc)
     time.sleep(0.5)  # da um tempinho pro Windows liberar o handle do arquivo
 
 
@@ -313,16 +370,7 @@ def apply_update(zip_path: Path, new_version: str):
 
 
 def log_error(context: str, exc: Exception):
-    import datetime
-    import traceback
-
-    log_path = BASE_DIR / "launcher_log.txt"
-    try:
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(f"\n[{datetime.datetime.now().isoformat()}] {context}\n")
-            f.write("".join(traceback.format_exception(type(exc), exc, exc.__traceback__)))
-    except OSError:
-        pass
+    logger.error(context, exc_info=exc)
 
 
 def launch_app():
@@ -431,10 +479,12 @@ class UpdaterUI:
                 self.release.get("asset_size"),
                 lambda p, d, t: self.root.after(0, self.set_progress, p, d, t),
             )
+            verificar_checksum(tmp_path, self.release.get("checksum_url"))
             self.root.after(0, self.set_status, "Fechando o ANEXT e aplicando a atualização...")
 
             apply_update(tmp_path, self.release["tag_name"])
 
+            logger.info("Atualização aplicada com sucesso: %s", self.release["tag_name"])
             self.root.after(0, self.finish, True, "")
         except Exception as exc:
             log_error("Falha ao baixar/aplicar atualização", exc)
@@ -455,18 +505,22 @@ class UpdaterUI:
 # Main
 # ---------------------------------------------------------------------------
 def main():
+    logger.info("Launcher iniciado.")
     local_version = read_local_version()
     release = get_latest_release()
 
     if release is None:
         # Sem internet, GitHub fora do ar, ou sem asset compatível: segue sem erro.
+        logger.info("Sem release disponível; abrindo versão instalada (%s).", local_version)
         launch_app()
         return
 
     if not is_newer(release["tag_name"], local_version):
+        logger.info("Já na versão mais recente (%s); abrindo.", local_version)
         launch_app()
         return
 
+    logger.info("Atualização encontrada: %s -> %s", local_version, release["tag_name"])
     ui = UpdaterUI(local_version, release["tag_name"], release)
     ui.run()
 

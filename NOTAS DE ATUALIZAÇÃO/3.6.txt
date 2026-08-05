@@ -1,0 +1,6 @@
+- Diagnóstico de erros: o ANEXT e o launcher agora gravam um log em
+  arquivo (pasta "logs" ao lado do programa), incluindo erros que antes
+  não deixavam rastro nenhum na tela.
+- A atualização automática passa a confirmar a integridade do arquivo
+  baixado antes de instalar, antes de simplesmente comparar apenas o
+  tamanho do arquivo.
