@@ -26,6 +26,8 @@ from pathlib import Path
 
 import fitz  # PyMuPDF
 
+from limites_caminho import truncar_para_caminho
+
 CARACTERES_INVALIDOS = r'[<>:"/\\|?*]'
 
 
@@ -130,9 +132,9 @@ def _montar_plano(doc: fitz.Document, pasta_saida: Path) -> tuple[list[tuple[Pat
         else:
             destino = pasta_saida
             nome = titulo_beneficio
-        # o título da tese pode ser bem longo — trunca pra não arriscar
-        # estourar o limite de 260 caracteres de caminho do Windows
-        nome_arquivo = f"0. Tópico {numero_topico} - {nome_arquivo_seguro(nome)[:60]}.pdf"
+        prefixo_fixo = f"0. Tópico {numero_topico} - "
+        nome_seguro = truncar_para_caminho(destino, nome_arquivo_seguro(nome), len(prefixo_fixo) + len(".pdf"))
+        nome_arquivo = f"{prefixo_fixo}{nome_seguro}.pdf"
         return [(destino / nome_arquivo, None)], None
 
     total_segurados = doc.page_count - inicio_individuais
@@ -145,11 +147,18 @@ def _montar_plano(doc: fitz.Document, pasta_saida: Path) -> tuple[list[tuple[Pat
 
         if usar_pastas:
             destino = pastas[posicao - 1]
-            nome_arquivo = f"0. Tópico {numero_topico} - {nome_arquivo_seguro(nome)}.pdf"
+            prefixo_fixo = f"0. Tópico {numero_topico} - "
         else:
             prefixo = "0." if posicao == 1 else f"0.{posicao - 1}"
             destino = pasta_saida
-            nome_arquivo = f"{prefixo} Tópico {numero_topico} - {nome_arquivo_seguro(nome)}.pdf"
+            prefixo_fixo = f"{prefixo} Tópico {numero_topico} - "
+
+        # nome do segurado pode ser bem longo — trunca o quanto for preciso
+        # pra "destino / nome_arquivo" não estourar o limite de caminho do
+        # Windows (260 caracteres), que senão faz o salvamento falhar com
+        # um erro de sistema incompreensível pra quem não é técnico
+        nome_seguro = truncar_para_caminho(destino, nome_arquivo_seguro(nome), len(prefixo_fixo) + len(".pdf"))
+        nome_arquivo = f"{prefixo_fixo}{nome_seguro}.pdf"
 
         plano.append((destino / nome_arquivo, pagina_idx))
 

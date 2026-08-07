@@ -54,3 +54,23 @@ def test_separar_capas_usa_subpastas_numeradas_quando_ja_existem(tmp_path):
 
     assert gerados[0].parent.name == "1. Qualquer nome"
     assert gerados[1].parent.name == "2. Outro nome"
+
+
+def test_separar_capas_nao_quebra_com_nome_de_segurado_extremamente_longo(tmp_path):
+    # nome de segurado gigante (ex.: várias partes/sobrenomes) não deve
+    # travar o salvamento por estourar o limite de caminho do Windows
+    nome_gigante = "FULANO " + "DE TAL " * 40  # bem além de qualquer limite razoável
+    paginas = [
+        ["TÓPICO 4.1", "Capa Geral da tese"],
+        ["ITEM", "BENEFÍCIO", "DATA"],
+        [nome_gigante, "ITEM 1 - Benefício B91"],
+    ]
+    entrada = tmp_path / "entrada.pdf"
+    criar_pdf_paginas(entrada, paginas)
+    pasta_saida = tmp_path / "saida"
+
+    gerados = separar_capas(entrada, pasta_saida)
+
+    assert len(gerados) == 1
+    assert gerados[0].is_file()
+    assert len(str(gerados[0])) <= 259

@@ -1,0 +1,6 @@
+- Nova opção "Colar texto" nas abas All-in-one e Gerar capas: cole a
+  tabela do Word direto (Ctrl+V) sem precisar importar um .docx — a
+  formatação original (mesclagens, cores, bordas e fontes) é capturada
+  automaticamente.
+- Corrige uma falha ao gerar/dividir capas quando o nome do segurado
+  (ou da pasta da tese) é muito longo.

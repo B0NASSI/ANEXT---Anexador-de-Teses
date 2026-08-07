@@ -26,6 +26,7 @@ from ttkbootstrap.widgets.scrolled import ScrolledText
 import documento
 import juntar_pdfs
 import log_setup
+from limites_caminho import truncar_para_caminho
 import tabela
 import tema
 import visual
@@ -330,6 +331,17 @@ def _plural(n: int, singular: str, plural: str) -> str:
 
 
 def _mensagem_erro_amigavel(exc: Exception) -> str:
+    # checa o tamanho real do caminho envolvido (via exc.filename, que o
+    # Python preenche em erros de arquivo) em vez de tentar reconhecer o
+    # texto do erro do Windows, que varia de idioma pra idioma
+    caminho_afetado = getattr(exc, "filename", None) or getattr(exc, "filename2", None)
+    if caminho_afetado and len(str(caminho_afetado)) > 259:
+        return (
+            f"Não foi possível salvar porque o caminho ficou maior do que o Windows permite "
+            f"(260 caracteres — este tem {len(str(caminho_afetado))}):\n{caminho_afetado}\n\n"
+            "Use uma pasta de destino com um caminho mais curto (ex.: mais perto da raiz do disco)."
+        )
+
     texto = str(exc).lower()
     if "permission denied" in texto or "permissão negada" in texto:
         return (
@@ -352,6 +364,214 @@ def _carregar_imagem_altura(caminho: str, altura: int) -> ImageTk.PhotoImage:
     proporcao = altura / imagem.height
     imagem = imagem.resize((int(imagem.width * proporcao), altura), Image.LANCZOS)
     return ImageTk.PhotoImage(imagem)
+
+
+class CaixaColarTabela:
+    """Caixa de "Colar texto" da tabela de segurados, com captura da
+    formatação via Word invisível: o Ctrl+V cola o texto simples e, logo em
+    seguida, o conteúdo do clipboard é colado num documento temporário do
+    Word para extrair a tabela com formatação (mesclagens, cores, bordas e
+    fontes). Editar o texto manualmente invalida a captura — os dados usados
+    na geração voltam a ser o texto simples da caixa.
+
+    Usada pelas abas All-in-one e Gerar capas: cada uma tem a sua instância,
+    com caixa, status e tabela capturada próprios. `ao_capturar` é chamado
+    (na thread principal) sempre que a tabela em vigor muda, para a aba
+    atualizar o que depender dela (ex.: o aviso de larguras personalizadas).
+    """
+
+    def __init__(self, pai, root, ao_capturar=None):
+        self.root = root
+        self.tabela_capturada = None  # (TabelaSegurados, tabela do Word) ou None
+        self._ao_capturar = ao_capturar
+        self._captura_em_andamento = False
+        self._ignorar_modificacao = False
+
+        self.frame = ttk.Frame(pai)
+        self.frame.columnconfigure(0, weight=1)
+        self._label_ajuda = ttk.Label(
+            self.frame, text=TEXTO_AJUDA_COLAR, foreground="#666666",
+            font=("Segoe UI", 8), wraplength=860,
+        )
+        self._label_ajuda.pack(anchor=W, pady=(0, 6))
+        self.caixa = ScrolledText(self.frame, autohide=True, bootstyle="secondary", height=5)
+        self.caixa.pack(fill=BOTH, expand=True)
+        self.caixa.text.configure(font=("Consolas", 9), padx=6, pady=6, relief="flat")
+        for sequencia in ("<Control-v>", "<Control-V>", "<Shift-Insert>"):
+            self.caixa.text.bind(sequencia, self._colou, add="+")
+        self.caixa.text.bind("<<Modified>>", self._modificado, add="+")
+
+        # a aba dona encaixa aqui os controles próprios (ex.: "Padronizar tabela...")
+        self.rodape = ttk.Frame(self.frame)
+        self.rodape.pack(fill=X, pady=(6, 0))
+
+        self.label_status = ttk.Label(self.frame, text="", font=("Segoe UI", 8, "bold"))
+        self.label_status.pack(anchor=W, pady=(6, 0))
+
+    # ── dados em vigor ────────────────────────────────────────────────────
+
+    def tabela_atual(self):
+        """TabelaSegurados em vigor (capturada ou extraída do texto simples).
+        Levanta ValueError se a caixa estiver vazia ou o texto for inválido."""
+        if self.tabela_capturada is not None:
+            return self.tabela_capturada[0]
+        texto = self.caixa.text.get("1.0", "end")
+        if not texto.strip():
+            raise ValueError("Cole a tabela de segurados no campo de texto.")
+        return tabela.extrair_de_texto(texto)
+
+    def obter_tabela(self):
+        """(TabelaSegurados, tabela do Word ou None) — o mesmo formato de
+        `tabela.extrair_de_docx`, para a geração tratar as duas origens igual."""
+        if self.tabela_capturada is not None:
+            return self.tabela_capturada
+        return self.tabela_atual(), None
+
+    def limpar(self):
+        self._ignorar_modificacao = True
+        try:
+            self.caixa.text.delete("1.0", "end")
+            self.caixa.text.edit_modified(False)
+        finally:
+            self._ignorar_modificacao = False
+        self.tabela_capturada = None
+        self.label_status.configure(text="")
+
+    def compactar(self):
+        """Encolhe a caixa durante o processamento — a tabela já foi lida e,
+        principalmente na aba All-in-one (a mais cheia), o espaço faz falta
+        pro Resultado em telas de altura comum (ex.: notebook 1080p)."""
+        self._label_ajuda.pack_forget()
+        self.rodape.pack_forget()
+        self.caixa.text.configure(height=2)
+
+    def expandir(self):
+        """Desfaz o `compactar()` ao final do processamento."""
+        self._label_ajuda.pack(anchor=W, pady=(0, 6), before=self.caixa)
+        self.rodape.pack(fill=X, pady=(6, 0), before=self.label_status)
+        self.caixa.text.configure(height=5)
+
+    # ── captura da tabela colada com formatação (via Word invisível) ─────
+
+    def _colou(self, _evento=None):
+        # deixa o Ctrl+V padrão inserir o texto simples e, logo depois,
+        # tenta capturar do clipboard a tabela com formatação
+        self.root.after(150, self._iniciar_captura)
+
+    def _modificado(self, _evento=None):
+        widget = self.caixa.text
+        if not widget.edit_modified():
+            return
+        widget.edit_modified(False)
+        if self._ignorar_modificacao:
+            return
+        # edição manual invalida a formatação capturada — os dados usados
+        # na geração passam a ser o texto simples da caixa
+        if self.tabela_capturada is not None:
+            self.tabela_capturada = None
+            self.label_status.configure(
+                text="Texto editado — será aplicado o estilo padrão da capa.", bootstyle="secondary",
+            )
+            self._avisar_mudanca()
+
+    def _iniciar_captura(self):
+        if self._captura_em_andamento:
+            return
+        self._captura_em_andamento = True
+        self.label_status.configure(
+            text="Lendo a formatação da tabela do Word...", bootstyle="secondary",
+        )
+        threading.Thread(target=self._capturar_worker, daemon=True).start()
+
+    def _capturar_worker(self):
+        pythoncom.CoInitialize()
+        tmp = None
+        try:
+            import win32com.client
+
+            word = win32com.client.DispatchEx("Word.Application")
+            word.Visible = False
+            word.DisplayAlerts = 0
+            try:
+                doc = word.Documents.Add()
+                doc.Range().Paste()
+                try:
+                    # colar num documento em branco costuma espremer colunas
+                    # (ex.: CNPJ quebrado em duas linhas). Auto-ajusta ao
+                    # conteúdo e depois distribui na largura da página.
+                    tabela_word = doc.Tables(1)
+                    tabela_word.AllowAutoFit = True
+                    tabela_word.AutoFitBehavior(1)  # wdAutoFitContent
+                    tabela_word.AutoFitBehavior(2)  # wdAutoFitWindow
+                except Exception:
+                    pass
+                tmp = Path(tempfile.mktemp(suffix=".docx"))
+                doc.SaveAs(str(tmp), FileFormat=16)  # wdFormatXMLDocument
+                doc.Close(False)
+            finally:
+                word.Quit()
+
+            resultado = tabela.extrair_de_docx(tmp)
+            self.root.after(0, self._captura_ok, resultado)
+        except Exception:
+            self.root.after(0, self._captura_falhou)
+        finally:
+            self._captura_em_andamento = False
+            if tmp is not None:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+            pythoncom.CoUninitialize()
+
+    def _captura_ok(self, resultado):
+        tabela_segurados, _referencia = resultado
+        self.tabela_capturada = resultado
+
+        # reescreve a caixa com a versão canônica da tabela capturada,
+        # para o texto exibido e os dados usados na geração serem os mesmos.
+        # células mescladas horizontalmente (span 0 = continuação) aparecem
+        # uma única vez, como no Word
+        def _linha_para_texto(linha):
+            spans = getattr(linha, "spans", None)
+            celulas = (
+                (c for c, s in zip(linha, spans) if s != 0) if spans else linha
+            )
+            return "\t".join(c.replace("\n", " ") for c in celulas)
+
+        linhas_texto = [_linha_para_texto(tabela_segurados.cabecalhos)]
+        linhas_texto += [_linha_para_texto(linha) for linha in tabela_segurados.linhas]
+        self._ignorar_modificacao = True
+        try:
+            widget = self.caixa.text
+            widget.delete("1.0", "end")
+            widget.insert("1.0", "\n".join(linhas_texto))
+            widget.edit_modified(False)
+        finally:
+            self._ignorar_modificacao = False
+
+        n = len(tabela_segurados.grupos)
+        self.label_status.configure(
+            text=f"✔ Tabela do Word capturada ({n} segurado(s)) — mesclagens, cores, bordas e fontes serão replicadas.",
+            bootstyle="success",
+        )
+        self._avisar_mudanca()
+
+    def _captura_falhou(self):
+        # sem Word, sem tabela no clipboard ou clipboard só com texto:
+        # segue valendo o texto simples colado na caixa
+        self.tabela_capturada = None
+        if self.caixa.text.get("1.0", "end").strip():
+            self.label_status.configure(
+                text="Texto sem formatação — será aplicado o estilo padrão da capa.", bootstyle="secondary",
+            )
+        else:
+            self.label_status.configure(text="")
+        self._avisar_mudanca()
+
+    def _avisar_mudanca(self):
+        if self._ao_capturar is not None:
+            self._ao_capturar()
 
 
 class AplicativoDivisorPDF:
@@ -395,9 +615,6 @@ class AplicativoDivisorPDF:
         self._saida_capas_manual = False
         self.var_gerar_docx_capas = tk.BooleanVar(value=False)
         self._ultimo_pdf_capas: Path | None = None
-        self._tabela_word_capturada = None
-        self._captura_em_andamento = False
-        self._ignorar_modificacao_colar = False
         self._config = _carregar_config()
 
         self._montar_banner(root)
@@ -728,8 +945,10 @@ class AplicativoDivisorPDF:
         try:
             arquivos = separar_capas(entrada, saida)
         except Exception as exc:
+            logger.exception("Falha ao dividir capas (entrada=%s, saida=%s)", entrada, saida)
             self.root.after(0, self._dividir_falhou, _mensagem_erro_amigavel(exc))
             return
+        logger.info("Divisão de capas concluída: %d arquivo(s) em %s", len(arquivos), saida)
         self.root.after(0, self._dividir_concluiu, arquivos, saida)
 
     def _dividir_falhou(self, mensagem: str):
@@ -995,8 +1214,10 @@ class AplicativoDivisorPDF:
             else:
                 arquivos = [juntar_pdfs.juntar_pasta(origem, saida, progresso_callback=progresso)]
         except Exception as exc:
+            logger.exception("Falha ao juntar PDFs (origem=%s, saida=%s, modo=%s)", origem, saida, modo)
             self.root.after(0, self._juntar_falhou, _mensagem_erro_amigavel(exc))
             return
+        logger.info("Junção de PDFs concluída (modo=%s): %s", modo, arquivos)
         self.root.after(0, self._juntar_concluiu, arquivos, saida)
 
     def _atualizar_progresso_juntar(self, atual: int, total: int):
@@ -1059,28 +1280,40 @@ class AplicativoDivisorPDF:
         linha_radios.grid(row=1, column=0, sticky=W, pady=(0, 6))
         ttk.Radiobutton(
             linha_radios, text="Importar de um .docx", variable=self.var_origem_tabela_allin, value="docx",
-            bootstyle="secondary",
+            command=self._alternar_origem_tabela_allin, bootstyle="secondary",
         ).pack(side=LEFT, padx=(0, 16))
         ttk.Radiobutton(
-            linha_radios, text="Colar texto  (em breve)", variable=self.var_origem_tabela_allin, value="colar",
-            bootstyle="secondary", state=DISABLED,
+            linha_radios, text="Colar texto", variable=self.var_origem_tabela_allin, value="colar",
+            command=self._alternar_origem_tabela_allin, bootstyle="secondary",
         ).pack(side=LEFT)
 
-        frame_docx = ttk.Frame(tabela_card)
-        frame_docx.grid(row=2, column=0, sticky=EW)
-        frame_docx.columnconfigure(1, weight=1)
+        self.frame_tabela_docx_allin = ttk.Frame(tabela_card)
+        self.frame_tabela_docx_allin.grid(row=2, column=0, sticky=EW)
+        self.frame_tabela_docx_allin.columnconfigure(1, weight=1)
         ttk.Button(
-            frame_docx, text="📂  Procurar...", command=self._escolher_tabela_docx_allin,
+            self.frame_tabela_docx_allin, text="📂  Procurar...", command=self._escolher_tabela_docx_allin,
             bootstyle="primary", width=14,
         ).grid(row=0, column=0, padx=(0, 10))
-        ttk.Entry(frame_docx, textvariable=self.var_docx_tabela_allin).grid(row=0, column=1, sticky=EW)
+        ttk.Entry(self.frame_tabela_docx_allin, textvariable=self.var_docx_tabela_allin).grid(row=0, column=1, sticky=EW)
         ttk.Label(
-            frame_docx,
+            self.frame_tabela_docx_allin,
             text="⚠️ Se a tabela ocupar mais de uma página, desative a opção \"Repetir "
                  "linhas de cabeçalho\" — caso contrário, o programa não conseguirá ler "
                  "os dados corretamente.",
             bootstyle="warning", font=("Segoe UI", 8, "bold"), wraplength=760, justify=LEFT,
         ).grid(row=1, column=0, columnspan=2, sticky=W, pady=(6, 0))
+
+        self.colar_allin = CaixaColarTabela(tabela_card, self.root, ao_capturar=self._atualizar_labels_larguras)
+        self.colar_allin.frame.grid(row=2, column=0, sticky=EW)
+        ttk.Button(
+            self.colar_allin.rodape, text="⚙  Padronizar tabela...",
+            command=lambda: self._abrir_padronizar_tabela(self.colar_allin, self.var_titulo_allin),
+            bootstyle="primary-outline",
+        ).pack(side=LEFT)
+        self.label_larguras_allin = ttk.Label(
+            self.colar_allin.rodape, text="", bootstyle="secondary", font=("Segoe UI", 8),
+        )
+        self.label_larguras_allin.pack(side=LEFT, padx=(10, 0))
 
         linha_base = ttk.Frame(tabela_card)
         linha_base.grid(row=0, column=0, sticky=W, pady=(0, 8))
@@ -1112,6 +1345,16 @@ class AplicativoDivisorPDF:
             pastas_card, text="Gerar também um arquivo Word (.docx) das capas", variable=self.var_gerar_docx_allin,
             bootstyle="secondary",
         ).grid(row=3, column=0, sticky=W, pady=(10, 0))
+
+        self._alternar_origem_tabela_allin()
+
+    def _alternar_origem_tabela_allin(self):
+        if self.var_origem_tabela_allin.get() == "docx":
+            self.colar_allin.frame.grid_remove()
+            self.frame_tabela_docx_allin.grid()
+        else:
+            self.frame_tabela_docx_allin.grid_remove()
+            self.colar_allin.frame.grid()
 
     def _montar_acoes_allin(self, pai):
         acoes = ttk.Frame(pai)
@@ -1213,6 +1456,10 @@ class AplicativoDivisorPDF:
         self.var_topico_allin.set("")
         self.var_titulo_allin.set("")
         self.var_docx_tabela_allin.set("")
+        self.colar_allin.limpar()
+        self.label_larguras_allin.configure(text="")
+        self.var_origem_tabela_allin.set("docx")
+        self._alternar_origem_tabela_allin()
         self.var_pasta_tese_allin.set("")
         self._pasta_tese_allin_manual = False
         self.var_gerar_docx_allin.set(False)
@@ -1223,7 +1470,18 @@ class AplicativoDivisorPDF:
         self._limpar_log_allin()
         self._mostrar_inicial_allin()
 
+    def _nome_final_allin(self, topico: str, pasta_tese: Path) -> str:
+        # o nome da pasta da tese pode ser bem longo — trunca o quanto for
+        # preciso pra "pasta_tese / nome_final.pdf" não estourar o limite
+        # de caminho do Windows (mesmo problema/solução do nome do
+        # segurado em separar_capas.py)
+        prefixo_fixo = f"Tópico {topico} - "
+        nome_pasta = truncar_para_caminho(pasta_tese, pasta_tese.name, len(prefixo_fixo) + len(".pdf"))
+        return sanitizar_nome_arquivo(f"{prefixo_fixo}{nome_pasta}")
+
     def _obter_tabela_allin(self):
+        if self.var_origem_tabela_allin.get() == "colar":
+            return self.colar_allin.obter_tabela()
         caminho_texto = self.var_docx_tabela_allin.get().strip()
         if not caminho_texto:
             raise ValueError("Selecione o .docx com a tabela de segurados.")
@@ -1283,7 +1541,7 @@ class AplicativoDivisorPDF:
         # avisa antes de sobrescrever um PDF/Word de capas ou o PDF final
         # já gerados (mesmo nome, direto na pasta da tese)
         nome_capas = "Capas Geradas"
-        nome_final = sanitizar_nome_arquivo(f"Tópico {topico} - {pasta_tese.name}")
+        nome_final = self._nome_final_allin(topico, pasta_tese)
         existentes = [
             caminho.name
             for caminho in (
@@ -1349,6 +1607,17 @@ class AplicativoDivisorPDF:
         if aviso_subpastas:
             self._log_allin(f"⚠ {aviso_subpastas}", "aviso")
 
+        larguras_colunas = None
+        if self.var_origem_tabela_allin.get() == "colar":
+            if tabela_referencia is not None:
+                self._log_allin("Estilo da tabela original será replicado (mesclagens, cores, bordas e fontes).")
+            else:
+                self._log_allin("Texto colado não tem formatação — será aplicado o estilo padrão da capa.")
+            larguras_colunas = self._larguras_para(len(tabela_segurados.cabecalhos))
+            if larguras_colunas:
+                self._log_allin("Larguras de coluna personalizadas serão aplicadas.")
+
+        self.colar_allin.compactar()
         self.botao_gerar_allin.config(state=DISABLED)
         self.botao_abrir_pasta_allin.config(state=DISABLED)
         self.botao_abrir_pdf_allin.config(state=DISABLED)
@@ -1361,7 +1630,8 @@ class AplicativoDivisorPDF:
 
         threading.Thread(
             target=self._allin_worker,
-            args=(titulo, topico, tabela_segurados, tabela_referencia, pasta_tese, self.var_gerar_docx_allin.get()),
+            args=(titulo, topico, tabela_segurados, tabela_referencia, pasta_tese,
+                  self.var_gerar_docx_allin.get(), larguras_colunas),
             daemon=True,
         ).start()
 
@@ -1400,7 +1670,8 @@ class AplicativoDivisorPDF:
         evento.wait()
         return resultado["ok"]
 
-    def _allin_worker(self, titulo, topico, tabela_segurados, tabela_referencia, pasta_tese: Path, gerar_docx: bool):
+    def _allin_worker(self, titulo, topico, tabela_segurados, tabela_referencia, pasta_tese: Path,
+                      gerar_docx: bool, larguras_colunas=None):
         pythoncom.CoInitialize()
         try:
             try:
@@ -1417,6 +1688,7 @@ class AplicativoDivisorPDF:
                     MODELO_CAPAS, titulo, tabela_segurados, tabela_referencia, pasta_tese,
                     conversor, topico=topico, gerar_docx=gerar_docx,
                     callback_progresso=self._allin_progresso_capas,
+                    larguras_colunas=larguras_colunas,
                     cancelar=self._cancelar_allin,
                 )
                 self.root.after(0, self._log_allin, "✓ Capas geradas", "item")
@@ -1445,26 +1717,33 @@ class AplicativoDivisorPDF:
                             pasta_tese, pasta_tese, progresso_callback=self._allin_progresso_juntar,
                             cancelar=self._cancelar_allin,
                         )
-                        nome_final = sanitizar_nome_arquivo(f"Tópico {topico} - {pasta_tese.name}")
+                        nome_final = self._nome_final_allin(topico, pasta_tese)
                         caminho_final = caminho_final.replace(pasta_tese / f"{nome_final}.pdf")
                     else:
                         motivo_sem_juntar = "cancelado"
                 else:
                     motivo_sem_juntar = "sem_subpastas"
             except InterruptedError:
+                logger.info("All-in-one suspensa pelo usuário (tese=%s, tópico=%s)", pasta_tese, topico)
                 self.root.after(0, self._allin_cancelado)
                 return
             except Exception as exc:
+                logger.exception("Falha na All-in-one (tese=%s, tópico=%s)", pasta_tese, topico)
                 self.root.after(0, self._allin_falhou, _mensagem_erro_amigavel(exc))
                 return
             finally:
                 conversor.fechar()
 
+            logger.info(
+                "All-in-one concluída: tese=%s, tópico=%s, %d segurado(s), pdf_final=%s",
+                pasta_tese, topico, len(tabela_segurados.grupos), caminho_final,
+            )
             self.root.after(0, self._allin_concluiu, caminho_final, motivo_sem_juntar)
         finally:
             pythoncom.CoUninitialize()
 
     def _restaurar_botao_allin(self):
+        self.colar_allin.expandir()
         self.botao_gerar_allin.config(state=NORMAL)
         self.frame_progresso_allin.pack_forget()
         self.botao_suspender_allin.pack_forget()
@@ -1527,8 +1806,8 @@ class AplicativoDivisorPDF:
             command=self._alternar_origem_tabela_capas, bootstyle="secondary",
         ).pack(side=LEFT, padx=(0, 16))
         ttk.Radiobutton(
-            linha_radios, text="Colar texto  (em breve)", variable=self.var_origem_tabela_capas, value="colar",
-            command=self._alternar_origem_tabela_capas, bootstyle="secondary", state=DISABLED,
+            linha_radios, text="Colar texto", variable=self.var_origem_tabela_capas, value="colar",
+            command=self._alternar_origem_tabela_capas, bootstyle="secondary",
         ).pack(side=LEFT)
 
         self.frame_tabela_docx_capas = ttk.Frame(tabela_card)
@@ -1550,34 +1829,17 @@ class AplicativoDivisorPDF:
             bootstyle="warning", font=("Segoe UI", 8, "bold"), wraplength=760, justify=LEFT,
         ).grid(row=1, column=0, columnspan=2, sticky=W, pady=(8, 0))
 
-        self.frame_tabela_colar_capas = ttk.Frame(tabela_card)
-        self.frame_tabela_colar_capas.grid(row=2, column=0, sticky=EW)
-        self.frame_tabela_colar_capas.columnconfigure(0, weight=1)
-        ttk.Label(
-            self.frame_tabela_colar_capas, text=TEXTO_AJUDA_COLAR, foreground="#666666",
-            font=("Segoe UI", 8), wraplength=860,
-        ).pack(anchor=W, pady=(0, 6))
-        self.texto_colar_capas = ScrolledText(self.frame_tabela_colar_capas, autohide=True, bootstyle="secondary", height=5)
-        self.texto_colar_capas.pack(fill=BOTH, expand=True)
-        self.texto_colar_capas.text.configure(font=("Consolas", 9), padx=6, pady=6, relief="flat")
-        for sequencia in ("<Control-v>", "<Control-V>", "<Shift-Insert>"):
-            self.texto_colar_capas.text.bind(sequencia, self._colou_na_caixa_capas, add="+")
-        self.texto_colar_capas.text.bind("<<Modified>>", self._texto_colar_modificado, add="+")
-
-        linha_rodape_colar = ttk.Frame(self.frame_tabela_colar_capas)
-        linha_rodape_colar.pack(fill=X, pady=(6, 0))
+        self.colar_capas = CaixaColarTabela(tabela_card, self.root, ao_capturar=self._atualizar_labels_larguras)
+        self.colar_capas.frame.grid(row=2, column=0, sticky=EW)
         ttk.Button(
-            linha_rodape_colar, text="⚙  Padronizar tabela...", command=self._abrir_padronizar_tabela,
+            self.colar_capas.rodape, text="⚙  Padronizar tabela...",
+            command=lambda: self._abrir_padronizar_tabela(self.colar_capas, self.var_titulo_capas),
             bootstyle="primary-outline",
         ).pack(side=LEFT)
         self.label_larguras_capas = ttk.Label(
-            linha_rodape_colar, text="", bootstyle="secondary", font=("Segoe UI", 8),
+            self.colar_capas.rodape, text="", bootstyle="secondary", font=("Segoe UI", 8),
         )
         self.label_larguras_capas.pack(side=LEFT, padx=(10, 0))
-        self.label_status_colar_capas = ttk.Label(
-            self.frame_tabela_colar_capas, text="", font=("Segoe UI", 8, "bold"),
-        )
-        self.label_status_colar_capas.pack(anchor=W, pady=(6, 0))
 
         linha_base = ttk.Frame(tabela_card)
         linha_base.grid(row=0, column=0, sticky=W, pady=(0, 12))
@@ -1665,127 +1927,11 @@ class AplicativoDivisorPDF:
 
     def _alternar_origem_tabela_capas(self):
         if self.var_origem_tabela_capas.get() == "docx":
-            self.frame_tabela_colar_capas.grid_remove()
+            self.colar_capas.frame.grid_remove()
             self.frame_tabela_docx_capas.grid()
         else:
             self.frame_tabela_docx_capas.grid_remove()
-            self.frame_tabela_colar_capas.grid()
-
-    # ── Captura da tabela colada com formatação (via Word invisível) ─────
-
-    def _colou_na_caixa_capas(self, _evento=None):
-        # deixa o Ctrl+V padrão inserir o texto simples e, logo depois,
-        # tenta capturar do clipboard a tabela com formatação
-        self.root.after(150, self._iniciar_captura_formatacao)
-
-    def _texto_colar_modificado(self, _evento=None):
-        widget = self.texto_colar_capas.text
-        if not widget.edit_modified():
-            return
-        widget.edit_modified(False)
-        if self._ignorar_modificacao_colar:
-            return
-        # edição manual invalida a formatação capturada — os dados usados
-        # na geração passam a ser o texto simples da caixa
-        if self._tabela_word_capturada is not None:
-            self._tabela_word_capturada = None
-            self.label_status_colar_capas.configure(
-                text="Texto editado — será aplicado o estilo padrão da capa.", bootstyle="secondary",
-            )
-
-    def _iniciar_captura_formatacao(self):
-        if self._captura_em_andamento:
-            return
-        self._captura_em_andamento = True
-        self.label_status_colar_capas.configure(
-            text="Lendo a formatação da tabela do Word...", bootstyle="secondary",
-        )
-        threading.Thread(target=self._capturar_formatacao_worker, daemon=True).start()
-
-    def _capturar_formatacao_worker(self):
-        pythoncom.CoInitialize()
-        tmp = None
-        try:
-            import win32com.client
-
-            word = win32com.client.DispatchEx("Word.Application")
-            word.Visible = False
-            word.DisplayAlerts = 0
-            try:
-                doc = word.Documents.Add()
-                doc.Range().Paste()
-                try:
-                    # colar num documento em branco costuma espremer colunas
-                    # (ex.: CNPJ quebrado em duas linhas). Auto-ajusta ao
-                    # conteúdo e depois distribui na largura da página.
-                    tabela_word = doc.Tables(1)
-                    tabela_word.AllowAutoFit = True
-                    tabela_word.AutoFitBehavior(1)  # wdAutoFitContent
-                    tabela_word.AutoFitBehavior(2)  # wdAutoFitWindow
-                except Exception:
-                    pass
-                tmp = Path(tempfile.mktemp(suffix=".docx"))
-                doc.SaveAs(str(tmp), FileFormat=16)  # wdFormatXMLDocument
-                doc.Close(False)
-            finally:
-                word.Quit()
-
-            resultado = tabela.extrair_de_docx(tmp)
-            self.root.after(0, self._captura_formatacao_ok, resultado)
-        except Exception:
-            self.root.after(0, self._captura_formatacao_falhou)
-        finally:
-            self._captura_em_andamento = False
-            if tmp is not None:
-                try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
-            pythoncom.CoUninitialize()
-
-    def _captura_formatacao_ok(self, resultado):
-        tabela_segurados, _referencia = resultado
-        self._tabela_word_capturada = resultado
-
-        # reescreve a caixa com a versão canônica da tabela capturada,
-        # para o texto exibido e os dados usados na geração serem os mesmos.
-        # células mescladas horizontalmente (span 0 = continuação) aparecem
-        # uma única vez, como no Word
-        def _linha_para_texto(linha):
-            spans = getattr(linha, "spans", None)
-            celulas = (
-                (c for c, s in zip(linha, spans) if s != 0) if spans else linha
-            )
-            return "\t".join(c.replace("\n", " ") for c in celulas)
-
-        linhas_texto = [_linha_para_texto(tabela_segurados.cabecalhos)]
-        linhas_texto += [_linha_para_texto(linha) for linha in tabela_segurados.linhas]
-        self._ignorar_modificacao_colar = True
-        try:
-            widget = self.texto_colar_capas.text
-            widget.delete("1.0", "end")
-            widget.insert("1.0", "\n".join(linhas_texto))
-            widget.edit_modified(False)
-        finally:
-            self._ignorar_modificacao_colar = False
-
-        n = len(tabela_segurados.grupos)
-        self.label_status_colar_capas.configure(
-            text=f"✔ Tabela do Word capturada ({n} segurado(s)) — mesclagens, cores, bordas e fontes serão replicadas.",
-            bootstyle="success",
-        )
-        self._atualizar_label_larguras(len(tabela_segurados.cabecalhos))
-
-    def _captura_formatacao_falhou(self):
-        # sem Word, sem tabela no clipboard ou clipboard só com texto:
-        # segue valendo o texto simples colado na caixa
-        self._tabela_word_capturada = None
-        if self.texto_colar_capas.text.get("1.0", "end").strip():
-            self.label_status_colar_capas.configure(
-                text="Texto sem formatação — será aplicado o estilo padrão da capa.", bootstyle="secondary",
-            )
-        else:
-            self.label_status_colar_capas.configure(text="")
+            self.colar_capas.frame.grid()
 
     # ── Padronização de larguras da tabela (modo colar) ──────────────────
 
@@ -1802,33 +1948,37 @@ class AplicativoDivisorPDF:
         else:
             larguras[str(n_colunas)] = proporcoes
         _salvar_config(self._config)
-        self._atualizar_label_larguras(n_colunas)
+        self._atualizar_labels_larguras()
 
-    def _atualizar_label_larguras(self, n_colunas: int | None = None) -> None:
-        if n_colunas is not None and self._larguras_para(n_colunas):
-            self.label_larguras_capas.configure(
-                text=f"✔ Larguras personalizadas ativas ({n_colunas} colunas)")
-        else:
-            self.label_larguras_capas.configure(text="")
+    def _atualizar_labels_larguras(self) -> None:
+        """Atualiza o aviso "Larguras personalizadas ativas" nas duas abas
+        que têm o modo colar, cada uma conforme a tabela em vigor na sua
+        própria caixa (as larguras salvas valem por número de colunas, e a
+        configuração é compartilhada entre as abas)."""
+        for caixa, label in (
+            (self.colar_allin, self.label_larguras_allin),
+            (self.colar_capas, self.label_larguras_capas),
+        ):
+            try:
+                n_colunas = len(caixa.tabela_atual().cabecalhos)
+            except ValueError:
+                label.configure(text="")
+                continue
+            if self._larguras_para(n_colunas):
+                label.configure(text=f"✔ Larguras personalizadas ativas ({n_colunas} colunas)")
+            else:
+                label.configure(text="")
 
-    def _tabela_atual_colar(self):
-        if self._tabela_word_capturada is not None:
-            return self._tabela_word_capturada[0]
-        texto = self.texto_colar_capas.text.get("1.0", "end")
-        if not texto.strip():
-            raise ValueError("Cole a tabela de segurados antes de padronizar.")
-        return tabela.extrair_de_texto(texto)
-
-    def _abrir_padronizar_tabela(self):
+    def _abrir_padronizar_tabela(self, caixa: CaixaColarTabela, var_titulo: tk.StringVar):
         from tkinter import font as tkfont
 
         try:
-            tabela_segurados = self._tabela_atual_colar()
+            tabela_segurados = caixa.tabela_atual()
         except ValueError as exc:
             messagebox.showwarning("Padronizar tabela", str(exc), parent=self.root)
             return
 
-        referencia = self._tabela_word_capturada[1] if self._tabela_word_capturada else None
+        referencia = caixa.tabela_capturada[1] if caixa.tabela_capturada else None
         n_colunas = len(tabela_segurados.cabecalhos)
         cabecalhos = [c.replace("\n", " ") for c in tabela_segurados.cabecalhos]
         fonte = tkfont.nametofont("TkDefaultFont")
@@ -1970,7 +2120,7 @@ class AplicativoDivisorPDF:
                 import fitz
 
                 doc = documento.montar_tabela_completa(
-                    str(MODELO_CAPAS), self.var_titulo_capas.get().strip() or "Prévia da tabela",
+                    str(MODELO_CAPAS), var_titulo.get().strip() or "Prévia da tabela",
                     tabela_segurados.cabecalhos, tabela_segurados.linhas[:12],
                     tabela_segurados.indice_nome, referencia, props,
                 )
@@ -2105,14 +2255,7 @@ class AplicativoDivisorPDF:
         self.var_topico_capas.set("")
         self.var_titulo_capas.set("")
         self.var_docx_tabela_capas.set("")
-        self._ignorar_modificacao_colar = True
-        try:
-            self.texto_colar_capas.text.delete("1.0", "end")
-            self.texto_colar_capas.text.edit_modified(False)
-        finally:
-            self._ignorar_modificacao_colar = False
-        self._tabela_word_capturada = None
-        self.label_status_colar_capas.configure(text="")
+        self.colar_capas.limpar()
         self.label_larguras_capas.configure(text="")
         self.var_origem_tabela_capas.set("docx")
         self._alternar_origem_tabela_capas()
@@ -2135,12 +2278,7 @@ class AplicativoDivisorPDF:
             if not caminho.is_file():
                 raise ValueError(f"Arquivo da tabela não encontrado:\n{caminho}")
             return tabela.extrair_de_docx(caminho)
-        if self._tabela_word_capturada is not None:
-            return self._tabela_word_capturada
-        texto = self.texto_colar_capas.text.get("1.0", "end")
-        if not texto.strip():
-            raise ValueError("Cole a tabela de segurados no campo de texto.")
-        return tabela.extrair_de_texto(texto), None
+        return self.colar_capas.obter_tabela()
 
     def _gerar_capas(self):
         if not MODELO_CAPAS.is_file():
@@ -2206,6 +2344,7 @@ class AplicativoDivisorPDF:
             if larguras_colunas:
                 self._log_capas("Larguras de coluna personalizadas serão aplicadas.")
 
+        self.colar_capas.compactar()
         self.botao_gerar_capas.config(state=DISABLED)
         self.botao_abrir_pasta_capas.config(state=DISABLED)
         self.botao_abrir_pdf_capas.config(state=DISABLED)
@@ -2227,6 +2366,7 @@ class AplicativoDivisorPDF:
             try:
                 conversor = ConversorPDF()
             except ConversorPDFIndisponivel as exc:
+                logger.warning("Word indisponível para gerar capas: %s", exc)
                 self.root.after(0, self._capas_falhou, str(exc))
                 return
 
@@ -2240,11 +2380,13 @@ class AplicativoDivisorPDF:
                     larguras_colunas=larguras_colunas,
                 )
             except Exception as exc:
+                logger.exception("Falha ao gerar capas (pasta=%s, tópico=%s)", pasta_saida, topico)
                 self.root.after(0, self._capas_falhou, _mensagem_erro_amigavel(exc))
                 return
             finally:
                 conversor.fechar()
 
+            logger.info("Geração de capas concluída: pdf=%s, docx=%s", caminho_pdf, caminho_docx)
             self.root.after(0, self._capas_concluiu, caminho_pdf, caminho_docx)
         finally:
             pythoncom.CoUninitialize()
@@ -2255,6 +2397,7 @@ class AplicativoDivisorPDF:
         self._log_capas(f"[{etapa}/{total}] {rotulo}", "item")
 
     def _restaurar_botao_capas(self):
+        self.colar_capas.expandir()
         self.botao_gerar_capas.config(state=NORMAL)
         self.frame_progresso_capas.pack_forget()
 
