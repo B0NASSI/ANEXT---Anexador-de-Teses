@@ -120,7 +120,11 @@ APP_INTERNAL = BASE_DIR / "_internal"
 STAGING_DIR = BASE_DIR / "_update_staging"
 VERSION_FILE = BASE_DIR / "versao.txt"
 
-log_setup.configurar_logging("launcher.log", BASE_DIR)
+# configurar_logging fica pra dentro de main() (não aqui, no nível do
+# módulo): app.py importa este arquivo pra reaproveitar get_latest_release/
+# is_newer/read_local_version na checagem de versão fora do launcher — se
+# isso aqui rodasse na importação, o app ganharia um segundo handler de log
+# (launcher.log) duplicando tudo que ele já loga em anext.log
 logger = logging.getLogger(__name__)
 
 
@@ -488,23 +492,27 @@ class UpdaterUI:
             self.root.after(0, self.finish, True, "")
         except Exception as exc:
             log_error("Falha ao baixar/aplicar atualização", exc)
-            if tmp_path and tmp_path.exists():
-                try:
-                    tmp_path.unlink()
-                except OSError:
-                    pass
             self.root.after(
                 0,
                 self.finish,
                 False,
                 f"Não foi possível concluir a atualização. A versão anterior será aberta.\n\nDetalhes: {exc}",
             )
+        finally:
+            # antes só era apagado no except — toda atualização bem-sucedida
+            # deixava esse .zip (~40MB) pra sempre na pasta de instalação
+            if tmp_path and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
 
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def main():
+    log_setup.configurar_logging("launcher.log", BASE_DIR)
     logger.info("Launcher iniciado.")
     local_version = read_local_version()
     release = get_latest_release()

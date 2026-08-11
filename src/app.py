@@ -2422,8 +2422,56 @@ def _registrar_erro_callback(exc_type, exc_value, exc_traceback):
     logger.error("Erro não tratado em callback da interface", exc_info=(exc_type, exc_value, exc_traceback))
 
 
+def _limpar_zips_temporarios_orfaos(base_dir: Path) -> None:
+    """Remove "tmp*.zip" esquecidos pelo launcher em atualizações antigas.
+
+    Bug corrigido em launcher.py: o .zip baixado pra aplicar a atualização
+    só era apagado no caminho de erro, nunca no de sucesso — toda
+    atualização aplicada com sucesso deixava esse pacote (~40MB) pra
+    sempre na pasta de instalação.
+
+    A correção do lado do launcher não chega em quem já tem o app
+    instalado, porque o launcher.exe já instalado nunca é substituído pelo
+    auto-update (só o ANEXT.exe e o _internal/ são) — por isso a limpeza
+    roda aqui, na inicialização do app principal, que sim é atualizado."""
+    for caminho in base_dir.glob("tmp*.zip"):
+        try:
+            caminho.unlink()
+            logger.info("Zip temporário órfão removido (bug de atualização antiga): %s", caminho)
+        except OSError as exc:
+            logger.warning("Não foi possível remover zip temporário órfão %s: %s", caminho, exc)
+
+
+def _avisar_se_desatualizado(root) -> None:
+    """Rede de segurança para quando o ANEXT.exe é aberto direto, sem passar
+    pelo launcher (ex.: atalho fixado errado na barra de tarefas - "Fixar na
+    barra de tarefas" a partir da janela já aberta em vez do atalho da área
+    de trabalho, que fixa o launcher). O launcher.py é quem normalmente
+    baixa e aplica a atualização; aqui só avisamos, sem baixar nem travar o
+    uso — e falha em silêncio se não conseguir checar (sem internet, GitHub
+    fora etc.), do mesmo jeito que o launcher já faz."""
+    def _checar():
+        try:
+            from launcher import get_latest_release, is_newer, read_local_version
+            release = get_latest_release()
+            if release is None or not is_newer(release["tag_name"], read_local_version()):
+                return
+        except Exception as exc:
+            logger.info("Checagem de versão (fora do launcher) não pôde ser concluída: %r", exc)
+            return
+        root.after(0, lambda: messagebox.showinfo(
+            "Nova versão disponível",
+            "Há uma versão mais nova do ANEXT disponível.\n\n"
+            "Feche o programa e abra pelo atalho da área de trabalho (ANEXT) "
+            "para atualizar automaticamente.",
+        ))
+
+    threading.Thread(target=_checar, daemon=True).start()
+
+
 def main():
     logger.info("ANEXT iniciado.")
+    _limpar_zips_temporarios_orfaos(_pasta_executavel())
     root = ttk.Window(themename="litera", iconphoto=None)
     root.report_callback_exception = _registrar_erro_callback
     try:
@@ -2432,6 +2480,7 @@ def main():
         logger.exception("Falha ao iniciar o aplicativo")
         messagebox.showerror("Erro ao iniciar", f"Não foi possível iniciar o aplicativo:\n{exc}", parent=root)
         raise
+    _avisar_se_desatualizado(root)
     root.mainloop()
     logger.info("ANEXT encerrado.")
 

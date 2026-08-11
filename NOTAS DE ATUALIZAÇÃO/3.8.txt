@@ -1,0 +1,7 @@
+- Corrigido acúmulo de arquivos temporários (tmp*.zip) deixados na pasta
+  do programa a cada atualização aplicada com sucesso. O programa agora
+  limpa isso sozinho ao abrir.
+- Novo aviso quando o ANEXT é aberto direto pelo executável principal,
+  sem passar pelo launcher (ex.: ícone fixado errado na barra de
+  tarefas): se houver uma versão mais nova, avisa pra fechar e abrir
+  pelo atalho da área de trabalho para atualizar.

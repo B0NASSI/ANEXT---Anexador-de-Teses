@@ -14,7 +14,12 @@ assets_datas = [
 app_datas = list(assets_datas) + [('modelo', 'modelo'), ('NOTAS DE ATUALIZAÇÃO', 'NOTAS DE ATUALIZAÇÃO')]
 app_binaries = []
 app_hiddenimports = ['win32com', 'win32com.client', 'pythoncom']
-for pacote in ('ttkbootstrap', 'PIL', 'fitz'):
+# 'requests' entrou aqui porque app.py importa launcher.py (pra reaproveitar
+# get_latest_release/is_newer/read_local_version na checagem de versão fora
+# do launcher) - precisa do collect_all igual ao do launcher, senão fica só
+# com o hidden import "requests" mas sem os módulos que ele carrega por
+# baixo dos panos (ver exclusão de 'email'/'http' abaixo, removida por isso)
+for pacote in ('ttkbootstrap', 'PIL', 'fitz', 'requests'):
     tmp_ret = collect_all(pacote)
     app_datas += tmp_ret[0]; app_binaries += tmp_ret[1]; app_hiddenimports += tmp_ret[2]
 
@@ -36,8 +41,10 @@ a_app = Analysis(
         'setuptools',
         'pip',
         'unittest',
-        'email',
-        'http',
+        # 'email' e 'http' NÃO podem ser excluídos aqui: requests (usado na
+        # checagem de versão fora do launcher) depende deles por baixo dos
+        # panos (via urllib3) - excluir quebra a checagem em silêncio, só
+        # detectável com log no except (já aconteceu no REQUERID)
         'xmlrpc',
         'ftplib',
         'multiprocessing',
