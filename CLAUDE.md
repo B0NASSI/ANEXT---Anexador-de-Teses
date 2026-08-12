@@ -9,7 +9,7 @@ App interno (Tkinter + ttkbootstrap) que gera, divide e junta os documentos de c
 - Monorepo privado `claude-code` (GitHub, B0NASSI) — este repositório, pasta `ANEXT/`. É a fonte de verdade.
 - Espelho de código-fonte público `ANEXT---Anexador-de-Teses` (GitHub, B0NASSI) — é dali que o launcher instalado baixa as releases (`GITHUB_OWNER`/`GITHUB_REPO` em `src/launcher.py`). Precisa ser sincronizado manualmente a cada release (não é um subtree/submodule de verdade — ver "Processo de release" abaixo).
 
-## Versão atual: 3.7
+## Versão atual: 3.8
 
 Changelog completo em `NOTAS DE ATUALIZAÇÃO/*.txt` (um arquivo por versão — também aparece dentro do próprio app, no menu "Notas de atualização").
 
@@ -36,12 +36,12 @@ Rodar: `.venv\Scripts\pytest -v` (venv próprio do ANEXT, criado com `uv venv .v
 
 ## Processo de release (manual, sem CI ainda)
 
-1. Bump `versao.txt` + criar `NOTAS DE ATUALIZAÇÃO/X.Y.txt`, commit no monorepo.
-2. `pyinstaller "ANEXT - Anexador de Teses.spec"` (gera `dist/ANEXT/` com `ANEXT.exe` + `_internal/`).
-3. Zipar o conteúdo de `dist/ANEXT/` (arquivos na raiz do zip, não a pasta) → `ANEXT-app.zip`.
-4. `python installer/gerar_checksum.py ANEXT-app.zip` → gera o `.sha256`.
-5. `gh release create <versão> ANEXT-app.zip ANEXT-app.zip.sha256 --repo B0NASSI/ANEXT---Anexador-de-Teses`.
-6. Sincronizar o código-fonte pro repositório público: **usar um `git worktree` isolado** apontando pra `anext-origin/main`, copiar os arquivos rastreados de `ANEXT/` (via `git ls-files`, sem prefixo), commitar e dar push — nunca faça isso com `cd` solto misturado em vários comandos (já causou um incidente de arquivos apagados no lugar errado; sempre use `git -C <caminho>` explícito).
+1. Bump `versao.txt` + criar `NOTAS DE ATUALIZAÇÃO/X.Y.txt` **antes de compilar** (a nota fica embutida dentro do `.exe`, não é um arquivo solto), commit no monorepo.
+2. `.venv\Scripts\python.exe installer\build_release.py` — compila do zero (nunca reaproveita build antigo), empacota, gera o checksum, e **confere sozinho que a nota da versão atual está de fato dentro do zip** antes de deixar prosseguir (aborta com erro claro se a nota não existir, ou se o zip sair sem ela). Existe porque já aconteceu de publicar uma release reaproveitando um build feito antes de escrever a nota — o app não tinha a nota, sem erro nenhum na hora. Não publica nada sozinho; termina imprimindo o comando `gh release create` pronto pra copiar.
+3. `gh release create <versão> ... --repo B0NASSI/ANEXT---Anexador-de-Teses` (comando impresso no fim do passo 2).
+4. Sincronizar o código-fonte pro repositório público: **usar um `git worktree` isolado** apontando pra `anext-origin/main`, copiar os arquivos rastreados de `ANEXT/` (via `git ls-files`, sem prefixo), commitar e dar push — nunca faça isso com `cd` solto misturado em vários comandos (já causou um incidente de arquivos apagados no lugar errado; sempre use `git -C <caminho>` explícito).
+
+Se publicar algo incompleto por engano: `gh release delete <versão> --repo ... --yes` apaga a release, mas **não** apaga a tag — precisa `git push <repo-público> --delete <versão>` separado, senão a próxima `gh release create` com o mesmo número reaproveita a tag antiga (apontando pro commit errado).
 
 **Sempre peça confirmação antes de publicar** (`gh release create`), mesmo em correção rotineira — e separe explicitamente "correção" de "feature nova/não testada" nesse pedido, pra não empacotar as duas coisas juntas sem o usuário poder escolher segurar a feature.
 

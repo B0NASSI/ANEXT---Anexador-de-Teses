@@ -301,6 +301,19 @@ def _normalizar_travessao(texto: str) -> str:
     return re.sub(r"(?<=\s)-(?=\s)", "–", texto)
 
 
+def _mostrar_inicio_ao_colar(entry: ttk.Entry) -> None:
+    """Depois de colar um título longo (comum: copiado do índice do
+    documento original, com o número do tópico na frente — ex.: "9. Nome
+    da tese..."), o campo mostra o FINAL do texto (onde ficou o cursor),
+    escondendo bem o começo — que costuma ser exatamente a parte que
+    precisa apagar. Depois do Ctrl+V, volta a exibição pro início, sem
+    mexer no conteúdo colado."""
+    def _voltar_ao_inicio(_evento=None):
+        entry.after(10, lambda: (entry.icursor(0), entry.xview_moveto(0)))
+
+    entry.bind("<<Paste>>", _voltar_ao_inicio, add="+")
+
+
 def _posicionar_um_pouco_acima_do_centro(root, largura: int, altura: int) -> None:
     root.update_idletasks()
     x = (root.winfo_screenwidth() - largura) // 2
@@ -1270,7 +1283,9 @@ class AplicativoDivisorPDF:
         ttk.Label(cartao, text="Número do tópico", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky=W, padx=(0, 10), pady=(0, 6))
         ttk.Entry(cartao, textvariable=self.var_topico_allin, width=8).grid(row=0, column=1, sticky=W, pady=(0, 6))
         ttk.Label(cartao, text="Título da tese", font=("Segoe UI", 9, "bold")).grid(row=1, column=0, sticky=W, padx=(0, 10))
-        ttk.Entry(cartao, textvariable=self.var_titulo_allin).grid(row=1, column=1, sticky=EW)
+        entry_titulo_allin = ttk.Entry(cartao, textvariable=self.var_titulo_allin)
+        entry_titulo_allin.grid(row=1, column=1, sticky=EW)
+        _mostrar_inicio_ao_colar(entry_titulo_allin)
 
         tabela_card = ttk.Labelframe(pai, text=" Tabela de segurados ", padding=12, bootstyle="secondary")
         tabela_card.pack(fill=X, pady=(0, 10))
@@ -1793,7 +1808,9 @@ class AplicativoDivisorPDF:
         ttk.Label(cartao, text="Número do tópico", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky=W, padx=(0, 10), pady=(0, 10))
         ttk.Entry(cartao, textvariable=self.var_topico_capas, width=8).grid(row=0, column=1, sticky=W, pady=(0, 10))
         ttk.Label(cartao, text="Título da tese", font=("Segoe UI", 9, "bold")).grid(row=1, column=0, sticky=W, padx=(0, 10))
-        ttk.Entry(cartao, textvariable=self.var_titulo_capas).grid(row=1, column=1, sticky=EW)
+        entry_titulo_capas = ttk.Entry(cartao, textvariable=self.var_titulo_capas)
+        entry_titulo_capas.grid(row=1, column=1, sticky=EW)
+        _mostrar_inicio_ao_colar(entry_titulo_capas)
 
         tabela_card = ttk.Labelframe(pai, text=" Tabela de segurados ", padding=18, bootstyle="secondary")
         tabela_card.pack(fill=X, pady=(0, 14))

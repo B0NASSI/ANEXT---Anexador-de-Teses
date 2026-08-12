@@ -1,0 +1,4 @@
+- Corrigido: colar um título de tese longo (com o número do tópico na
+  frente, copiado do índice do documento original) deixava o campo
+  mostrando o final do texto, escondendo o número. Agora volta a
+  mostrar o início automaticamente depois de colar.
