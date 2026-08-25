@@ -16,6 +16,8 @@ from pathlib import Path
 
 import fitz  # PyMuPDF
 
+from diagnostico import metadados_anext
+
 PADRAO_NUMERADO = re.compile(r"\s*\d+\s*\.")
 
 
@@ -91,6 +93,7 @@ def juntar_pasta(pasta: Path, pasta_saida: Path, progresso_callback=None) -> Pat
             if progresso_callback:
                 progresso_callback(indice, total)
         caminho_saida = pasta_saida / nome_saida(pasta)
+        combinado.set_metadata(metadados_anext())
         _com_repeticao(lambda: combinado.save(caminho_saida))
     finally:
         combinado.close()
@@ -121,6 +124,7 @@ def juntar_tese(pasta_mae: Path, pasta_saida: Path, progresso_callback=None, can
             if progresso_callback:
                 progresso_callback(indice, total)
         caminho_saida = pasta_saida / nome_saida(pasta_mae)
+        combinado.set_metadata(metadados_anext())
         _com_repeticao(lambda: combinado.save(caminho_saida))
     finally:
         combinado.close()

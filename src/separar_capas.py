@@ -26,6 +26,7 @@ from pathlib import Path
 
 import fitz  # PyMuPDF
 
+from diagnostico import metadados_anext
 from limites_caminho import truncar_para_caminho
 
 CARACTERES_INVALIDOS = r'[<>:"/\\|?*]'
@@ -189,6 +190,7 @@ def separar_capas(caminho_entrada: Path, pasta_saida: Path) -> list[Path]:
                     if posicao == 1:
                         novo.insert_pdf(doc, from_page=0, to_page=inicio_individuais - 1)  # capa geral + benefícios gerais (todas as páginas)
                     novo.insert_pdf(doc, from_page=pagina_idx, to_page=pagina_idx)
+                novo.set_metadata(metadados_anext())
                 _com_repeticao(lambda: novo.save(caminho_saida))
             finally:
                 novo.close()

@@ -4,6 +4,11 @@
 Os dois são compilados com console=False (sem janela de terminal), então
 sem isso um erro não tratado hoje simplesmente desaparece — nem quem usa
 nem quem dá suporte vê rastro nenhum dele.
+
+Gravado com append simples (mais antigo primeiro) — rápido e seguro mesmo
+se o programa travar no meio de uma escrita. Quem quiser ler mais recente
+primeiro usa o Ctrl+L dentro do app (app.py:_abrir_log), que gera uma cópia
+invertida só na hora de abrir, sem tocar no arquivo real.
 """
 import logging
 from logging.handlers import RotatingFileHandler

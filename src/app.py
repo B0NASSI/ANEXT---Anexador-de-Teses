@@ -735,6 +735,8 @@ class AplicativoDivisorPDF:
         # largura (com atraso curto, para não redesenhar a cada pixel
         # durante o arraste da borda)
         root.bind("<Configure>", self._ao_redimensionar_janela, add="+")
+        root.bind("<Control-l>", lambda _: self._abrir_log())
+        root.bind("<Control-L>", lambda _: self._abrir_log())
 
     def _atualizar_banner(self, largura: int) -> None:
         largura = max(int(largura), 400)
@@ -762,6 +764,22 @@ class AplicativoDivisorPDF:
         self._redesenho_banner_pendente = self.root.after(
             120, lambda: self._atualizar_banner(self.root.winfo_width())
         )
+
+    def _abrir_log(self) -> None:
+        caminho_log = _pasta_executavel() / "logs" / "anext.log"
+        if not caminho_log.exists():
+            messagebox.showinfo("Log", "Nenhuma operação registrada ainda.", parent=self.root)
+            return
+        # o arquivo real fica em ordem cronológica normal (append simples,
+        # rápido e seguro); a inversão pra mais-recente-no-topo é só nesta
+        # cópia de leitura, gerada na hora de abrir — nunca no arquivo real
+        try:
+            linhas = caminho_log.read_text(encoding="utf-8").splitlines()
+            caminho_exibicao = Path(tempfile.gettempdir()) / "ANEXT - log (mais recente no topo).log"
+            caminho_exibicao.write_text("\n".join(reversed(linhas)), encoding="utf-8")
+            os.startfile(str(caminho_exibicao))
+        except Exception:
+            os.startfile(str(caminho_log))
 
     def _montar_barra_superior(self, root):
         barra = ttk.Frame(root, padding=(14, 6, 14, 0))
@@ -955,13 +973,17 @@ class AplicativoDivisorPDF:
         ).start()
 
     def _dividir_worker(self, entrada: Path, saida: Path):
+        logger.info("Iniciando divisão de capas (entrada=%s, saida=%s)", entrada, saida)
         try:
             arquivos = separar_capas(entrada, saida)
         except Exception as exc:
             logger.exception("Falha ao dividir capas (entrada=%s, saida=%s)", entrada, saida)
             self.root.after(0, self._dividir_falhou, _mensagem_erro_amigavel(exc))
             return
-        logger.info("Divisão de capas concluída: %d arquivo(s) em %s", len(arquivos), saida)
+        logger.info(
+            "Divisão de capas concluída (entrada=%s): %d arquivo(s) em %s → %s",
+            entrada.name, len(arquivos), saida, [a.name for a in arquivos],
+        )
         self.root.after(0, self._dividir_concluiu, arquivos, saida)
 
     def _dividir_falhou(self, mensagem: str):
@@ -1104,11 +1126,14 @@ class AplicativoDivisorPDF:
 
         linhas = []
         erros_totais = []
+        arquivos_por_item = []
         for posicao, item in enumerate(itens, start=1):
             arquivos_do_item = juntar_pdfs.pdfs_em_ordem(item) if modo == "tese" else [item]
             paginas, erros = juntar_pdfs.validar_e_contar_paginas(arquivos_do_item)
             erros_totais.extend(erros)
             linhas.append((f"{posicao}. {item.name}", _plural(len(arquivos_do_item), "arquivo", "arquivos"), _plural(paginas, "página", "páginas")))
+            if modo == "tese":
+                arquivos_por_item.append(arquivos_do_item)
 
         if erros_totais:
             messagebox.showerror(
@@ -1125,9 +1150,9 @@ class AplicativoDivisorPDF:
         if caminho_saida.exists():
             aviso = f'Já existe um arquivo "{caminho_saida.name}" na {nome_pasta_destino} — ele será SUBSTITUÍDO.'
 
-        return self._mostrar_confirmacao(titulo, linhas, aviso)
+        return self._mostrar_confirmacao(titulo, linhas, aviso, arquivos_por_item if modo == "tese" else None)
 
-    def _mostrar_confirmacao(self, titulo: str, linhas: list[tuple[str, str, str]], aviso: str) -> bool:
+    def _mostrar_confirmacao(self, titulo: str, linhas: list[tuple[str, str, str]], aviso: str, detalhe_por_linha=None) -> bool:
         janela = ttk.Toplevel(self.root)
         janela.title("Confirmar antes de juntar")
         janela.resizable(False, False)
@@ -1145,6 +1170,7 @@ class AplicativoDivisorPDF:
         moldura.pack(padx=24, pady=(0, 38))
 
         linhas_visiveis = max(1, min(len(linhas), 12))
+
         tabela = ttk.Treeview(moldura, columns=("nome", "arquivos", "paginas"), show="headings", height=linhas_visiveis + 1)
         tabela.heading("nome", text="Nome")
         tabela.heading("arquivos", text="Arquivos")
@@ -1152,9 +1178,48 @@ class AplicativoDivisorPDF:
         tabela.column("nome", width=320, stretch=False, anchor=W)
         tabela.column("arquivos", width=100, stretch=False, anchor=CENTER)
         tabela.column("paginas", width=100, stretch=False, anchor=CENTER)
-        tabela.pack(side=LEFT)
+        tabela.tag_configure("filho", foreground="gray")
+
+        iids_pai = []
         for linha in linhas:
-            tabela.insert("", "end", values=linha)
+            iids_pai.append(tabela.insert("", "end", values=linha))
+
+        filhos_por_pai = {}   # {iid_pai: [iid_filho, ...]}
+        iids_filho = set()
+
+        def _redimensionar():
+            nova_altura = max(1, min(len(tabela.get_children("")), 20))
+            tabela.configure(height=nova_altura)
+            janela.update_idletasks()
+            w, h = janela.winfo_reqwidth(), janela.winfo_reqheight()
+            janela.geometry(f"{w}x{h}")
+            _posicionar_sobre_janela(self.root, janela, w, h)
+
+        def _ao_clicar(event):
+            iid = tabela.identify_row(event.y)
+            if not iid or iid in iids_filho or detalhe_por_linha is None:
+                return
+            idx = iids_pai.index(iid)
+            if iid in filhos_por_pai:
+                # recolhe
+                for fid in filhos_por_pai.pop(iid):
+                    iids_filho.discard(fid)
+                    tabela.delete(fid)
+            else:
+                # expande: insere filhos logo abaixo do pai
+                pos = tabela.index(iid)
+                filhos = []
+                for j, arq in enumerate(detalhe_por_linha[idx]):
+                    fid = tabela.insert("", pos + 1 + j, values=(f"      {arq.name}", "", ""), tags=("filho",))
+                    filhos.append(fid)
+                    iids_filho.add(fid)
+                filhos_por_pai[iid] = filhos
+            _redimensionar()
+
+        if detalhe_por_linha:
+            tabela.bind("<Button-1>", _ao_clicar)
+
+        tabela.pack(side=LEFT)
         tabela.selection_remove(*tabela.selection())
         tabela.focus("")
 
@@ -1221,16 +1286,27 @@ class AplicativoDivisorPDF:
         def progresso(atual, total):
             self.root.after(0, self._atualizar_progresso_juntar, atual, total)
 
+        logger.info("Iniciando junção de PDFs (modo=%s, origem=%s, saida=%s)", modo, origem, saida)
         try:
             if modo == "tese":
+                subpastas = juntar_pdfs.subpastas_numeradas(origem)
+                entradas = [
+                    f"{sub.name}/{arq.name}"
+                    for sub in subpastas
+                    for arq in juntar_pdfs.pdfs_em_ordem(sub)
+                ]
                 arquivos = [juntar_pdfs.juntar_tese(origem, saida, progresso_callback=progresso)]
             else:
+                entradas = [a.name for a in juntar_pdfs.pdfs_em_ordem(origem)]
                 arquivos = [juntar_pdfs.juntar_pasta(origem, saida, progresso_callback=progresso)]
         except Exception as exc:
             logger.exception("Falha ao juntar PDFs (origem=%s, saida=%s, modo=%s)", origem, saida, modo)
             self.root.after(0, self._juntar_falhou, _mensagem_erro_amigavel(exc))
             return
-        logger.info("Junção de PDFs concluída (modo=%s): %s", modo, arquivos)
+        logger.info(
+            "Junção de PDFs concluída (modo=%s, origem=%s): %d doc(s) → %s | ordem: %s",
+            modo, origem, len(entradas), arquivos, entradas,
+        )
         self.root.after(0, self._juntar_concluiu, arquivos, saida)
 
     def _atualizar_progresso_juntar(self, atual: int, total: int):
@@ -1687,6 +1763,10 @@ class AplicativoDivisorPDF:
 
     def _allin_worker(self, titulo, topico, tabela_segurados, tabela_referencia, pasta_tese: Path,
                       gerar_docx: bool, larguras_colunas=None):
+        logger.info(
+            "Iniciando All-in-one (tese=%s, tópico=%s, %d segurado(s))",
+            pasta_tese, topico, len(tabela_segurados.grupos),
+        )
         pythoncom.CoInitialize()
         try:
             try:
@@ -1750,8 +1830,9 @@ class AplicativoDivisorPDF:
                 conversor.fechar()
 
             logger.info(
-                "All-in-one concluída: tese=%s, tópico=%s, %d segurado(s), pdf_final=%s",
+                "All-in-one concluída: tese=%s, tópico=%s, %d segurado(s), pdf_final=%s | segurados: %s",
                 pasta_tese, topico, len(tabela_segurados.grupos), caminho_final,
+                [nome for nome, _ in tabela_segurados.grupos],
             )
             self.root.after(0, self._allin_concluiu, caminho_final, motivo_sem_juntar)
         finally:
@@ -2378,6 +2459,10 @@ class AplicativoDivisorPDF:
 
     def _gerar_capas_worker(self, titulo, topico, tabela_segurados, tabela_referencia, pasta_saida, gerar_docx,
                             larguras_colunas=None):
+        logger.info(
+            "Iniciando geração de capas (pasta=%s, tópico=%s, %d segurado(s))",
+            pasta_saida, topico, len(tabela_segurados.grupos),
+        )
         pythoncom.CoInitialize()
         try:
             try:
@@ -2403,7 +2488,11 @@ class AplicativoDivisorPDF:
             finally:
                 conversor.fechar()
 
-            logger.info("Geração de capas concluída: pdf=%s, docx=%s", caminho_pdf, caminho_docx)
+            logger.info(
+                "Geração de capas concluída (pasta=%s, tópico=%s): pdf=%s, docx=%s | segurados: %s",
+                pasta_saida, topico, caminho_pdf, caminho_docx,
+                [nome for nome, _ in tabela_segurados.grupos],
+            )
             self.root.after(0, self._capas_concluiu, caminho_pdf, caminho_docx)
         finally:
             pythoncom.CoUninitialize()

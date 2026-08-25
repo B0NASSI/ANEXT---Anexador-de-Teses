@@ -23,6 +23,7 @@ from documento import (
     montar_pagina_segurado,
     montar_tabela_completa,
 )
+from diagnostico import metadados_anext
 from pdf import ConversorPDF
 from tabela import TabelaSegurados
 
@@ -132,6 +133,7 @@ def gerar_pdf_capas(
         # caracteres do Windows em pastas de tese já bem aninhadas.
         pasta_saida.mkdir(parents=True, exist_ok=True)
         caminho_pdf = pasta_saida / "Capas Geradas.pdf"
+        pdf_final.set_metadata(metadados_anext())
         _com_repeticao(lambda: pdf_final.save(str(caminho_pdf)))
 
         caminho_docx = None

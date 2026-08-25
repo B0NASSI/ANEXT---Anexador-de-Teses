@@ -1,0 +1,6 @@
+- PDFs gerados agora guardam a versão do ANEXT.
+- Atalho Ctrl+L abre o log de operações, com a mais recente no
+  topo.
+- O log agora lista os documentos/segurados de cada operação.
+- Na confirmação antes de juntar PDFs, clicar em uma pasta mostra
+  os arquivos dentro dela.
