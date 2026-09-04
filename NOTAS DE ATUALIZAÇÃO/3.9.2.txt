@@ -1,0 +1,3 @@
+- Na tese "CONTESTAÇÃO ADMINISTRATIVA, EFEITO SUSPENSIVO E PRAZO
+  PRESCRICIONAL", o All-in-one agora anexa automaticamente a decisão
+  do STJ como último documento.

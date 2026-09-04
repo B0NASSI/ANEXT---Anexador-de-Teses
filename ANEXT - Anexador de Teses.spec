@@ -11,7 +11,11 @@ assets_datas = [
 # ---------------------------------------------------------------------------
 # ANEXT.exe - programa principal
 # ---------------------------------------------------------------------------
-app_datas = list(assets_datas) + [('modelo', 'modelo'), ('NOTAS DE ATUALIZAÇÃO', 'NOTAS DE ATUALIZAÇÃO')]
+app_datas = list(assets_datas) + [
+    ('modelo', 'modelo'),
+    ('NOTAS DE ATUALIZAÇÃO', 'NOTAS DE ATUALIZAÇÃO'),
+    ('anexos_fixos', 'anexos_fixos'),
+]
 app_binaries = []
 app_hiddenimports = ['win32com', 'win32com.client', 'pythoncom']
 # 'requests' entrou aqui porque app.py importa launcher.py (pra reaproveitar

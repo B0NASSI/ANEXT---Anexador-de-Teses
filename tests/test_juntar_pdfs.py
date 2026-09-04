@@ -38,3 +38,17 @@ def test_juntar_tese_percorre_subpastas_numeradas_em_ordem(tmp_path):
     saida = juntar_tese(pasta_mae, tmp_path / "saida")
 
     assert _textos_das_paginas(saida) == ["SEG1_CAPA", "SEG2_CAPA", "SEG2_ANEXO"]
+
+
+def test_juntar_tese_acrescenta_anexo_extra_como_ultimo_documento(tmp_path):
+    pasta_mae = tmp_path / "tese completa"
+    pasta_mae.mkdir()
+    seg1 = pasta_mae / "1. FULANO DE TAL"
+    seg1.mkdir()
+    criar_pdf_paginas(seg1 / "0. capa.pdf", [["SEG1_CAPA"]])
+    anexo_extra = tmp_path / "ACORDAO STJ.pdf"
+    criar_pdf_paginas(anexo_extra, [["PAGINA_DO_ANEXO"]])
+
+    saida = juntar_tese(pasta_mae, tmp_path / "saida", anexo_extra=anexo_extra)
+
+    assert _textos_das_paginas(saida) == ["SEG1_CAPA", "PAGINA_DO_ANEXO"]

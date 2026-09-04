@@ -100,7 +100,13 @@ def juntar_pasta(pasta: Path, pasta_saida: Path, progresso_callback=None) -> Pat
     return caminho_saida
 
 
-def juntar_tese(pasta_mae: Path, pasta_saida: Path, progresso_callback=None, cancelar=None) -> Path:
+def juntar_tese(
+    pasta_mae: Path, pasta_saida: Path, progresso_callback=None, cancelar=None,
+    anexo_extra: Path | None = None,
+) -> Path:
+    """anexo_extra: PDF fixo a acrescentar como últimas páginas, depois de
+    todos os documentos das subpastas (ver `anexo_fixo.py` — usado para
+    teses que sempre levam um mesmo documento de referência ao final)."""
     subpastas = subpastas_numeradas(pasta_mae)
     if not subpastas:
         raise ValueError('Nenhuma subpasta numerada encontrada (ex: "1. NOME").')
@@ -123,6 +129,9 @@ def juntar_tese(pasta_mae: Path, pasta_saida: Path, progresso_callback=None, can
                 combinado.insert_pdf(doc)
             if progresso_callback:
                 progresso_callback(indice, total)
+        if anexo_extra is not None:
+            with _com_repeticao(lambda: fitz.open(anexo_extra)) as doc:
+                combinado.insert_pdf(doc)
         caminho_saida = pasta_saida / nome_saida(pasta_mae)
         combinado.set_metadata(metadados_anext())
         _com_repeticao(lambda: combinado.save(caminho_saida))

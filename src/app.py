@@ -23,6 +23,7 @@ import ttkbootstrap as ttk
 from ttkbootstrap.constants import BOTH, BOTTOM, CENTER, DISABLED, E, EW, LEFT, NORMAL, RIGHT, W, X, Y
 from ttkbootstrap.widgets.scrolled import ScrolledText
 
+import anexo_fixo
 import documento
 import juntar_pdfs
 import log_setup
@@ -1363,6 +1364,14 @@ class AplicativoDivisorPDF:
         entry_titulo_allin.grid(row=1, column=1, sticky=EW)
         _mostrar_inicio_ao_colar(entry_titulo_allin)
 
+        self.label_anexo_fixo_allin = ttk.Label(
+            cartao, text="📎  Esta tese leva um documento fixo como último anexo",
+            bootstyle="secondary", font=("Segoe UI", 8),
+        )
+        self.label_anexo_fixo_allin.grid(row=2, column=1, sticky=W, pady=(2, 0))
+        self.label_anexo_fixo_allin.grid_remove()
+        self.var_titulo_allin.trace_add("write", self._atualizar_aviso_anexo_fixo_allin)
+
         tabela_card = ttk.Labelframe(pai, text=" Tabela de segurados ", padding=12, bootstyle="secondary")
         tabela_card.pack(fill=X, pady=(0, 10))
         tabela_card.columnconfigure(0, weight=1)
@@ -1438,6 +1447,12 @@ class AplicativoDivisorPDF:
         ).grid(row=3, column=0, sticky=W, pady=(10, 0))
 
         self._alternar_origem_tabela_allin()
+
+    def _atualizar_aviso_anexo_fixo_allin(self, *_args):
+        if anexo_fixo.caminho_anexo_fixo(self.var_titulo_allin.get()) is not None:
+            self.label_anexo_fixo_allin.grid()
+        else:
+            self.label_anexo_fixo_allin.grid_remove()
 
     def _alternar_origem_tabela_allin(self):
         if self.var_origem_tabela_allin.get() == "docx":
@@ -1803,6 +1818,13 @@ class AplicativoDivisorPDF:
                 # pastas + páginas + aviso de sobrescrita) só faz sentido bem
                 # AQUI, no momento de juntar — antes disso as capas ainda nem
                 # existiam
+                caminho_anexo_fixo = anexo_fixo.caminho_anexo_fixo(titulo)
+                if caminho_anexo_fixo is not None and not caminho_anexo_fixo.is_file():
+                    logger.warning("Anexo fixo esperado para esta tese não foi encontrado: %s", caminho_anexo_fixo)
+                    caminho_anexo_fixo = None
+                elif caminho_anexo_fixo is not None:
+                    logger.info("Anexo fixo será acrescentado ao final (tese=%s): %s", titulo, caminho_anexo_fixo.name)
+
                 caminho_final = None
                 motivo_sem_juntar = None
                 subpastas_atuais = pastas_segurados_em_ordem(pasta_tese)
@@ -1810,7 +1832,7 @@ class AplicativoDivisorPDF:
                     if self._allin_confirmar_juntar(pasta_tese):
                         caminho_final = juntar_pdfs.juntar_tese(
                             pasta_tese, pasta_tese, progresso_callback=self._allin_progresso_juntar,
-                            cancelar=self._cancelar_allin,
+                            cancelar=self._cancelar_allin, anexo_extra=caminho_anexo_fixo,
                         )
                         nome_final = self._nome_final_allin(topico, pasta_tese)
                         caminho_final = caminho_final.replace(pasta_tese / f"{nome_final}.pdf")
