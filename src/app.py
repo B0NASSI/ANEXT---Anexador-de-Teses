@@ -1454,6 +1454,13 @@ class AplicativoDivisorPDF:
         else:
             self.label_anexo_fixo_allin.grid_remove()
 
+    def _avisar_anexo_fixo_nao_aplicado(self, mensagem: str):
+        # popup, além da linha no Resultado — o anexo automático some sem
+        # aviso nenhum se só logar no texto de resultado, que nem todo
+        # mundo olha
+        self._log_allin(f"⚠ {mensagem}", "aviso")
+        messagebox.showwarning("Anexo automático", mensagem, parent=self.root)
+
     def _alternar_origem_tabela_allin(self):
         if self.var_origem_tabela_allin.get() == "docx":
             self.colar_allin.frame.grid_remove()
@@ -1821,19 +1828,35 @@ class AplicativoDivisorPDF:
                 caminho_anexo_fixo = anexo_fixo.caminho_anexo_fixo(titulo)
                 if caminho_anexo_fixo is not None and not caminho_anexo_fixo.is_file():
                     logger.warning("Anexo fixo esperado para esta tese não foi encontrado: %s", caminho_anexo_fixo)
+                    self.root.after(0, self._avisar_anexo_fixo_nao_aplicado, "Documento fixo desta tese não foi encontrado — não anexado.")
                     caminho_anexo_fixo = None
-                elif caminho_anexo_fixo is not None:
-                    logger.info("Anexo fixo será acrescentado ao final (tese=%s): %s", titulo, caminho_anexo_fixo.name)
 
                 caminho_final = None
                 motivo_sem_juntar = None
                 subpastas_atuais = pastas_segurados_em_ordem(pasta_tese)
                 if subpastas_atuais and len(subpastas_atuais) == len(tabela_segurados.grupos):
+                    if caminho_anexo_fixo is not None:
+                        ultimo_documento = juntar_pdfs.ultimo_documento(pasta_tese)
+                        if ultimo_documento is not None and anexo_fixo.ja_esta_presente(ultimo_documento, caminho_anexo_fixo):
+                            logger.info(
+                                "Anexo fixo já parece estar presente na tese (tese=%s, arquivo=%s) — não duplicando.",
+                                titulo, ultimo_documento.name,
+                            )
+                            self.root.after(
+                                0, self._avisar_anexo_fixo_nao_aplicado,
+                                "Decisão do STJ já parece estar na tese — não anexada de novo.",
+                            )
+                            caminho_anexo_fixo = None
+                        else:
+                            logger.info("Anexo fixo será acrescentado ao final (tese=%s): %s", titulo, caminho_anexo_fixo.name)
+
                     if self._allin_confirmar_juntar(pasta_tese):
                         caminho_final = juntar_pdfs.juntar_tese(
                             pasta_tese, pasta_tese, progresso_callback=self._allin_progresso_juntar,
                             cancelar=self._cancelar_allin, anexo_extra=caminho_anexo_fixo,
                         )
+                        if caminho_anexo_fixo is not None:
+                            self.root.after(0, self._log_allin, "✓ Decisão do STJ anexada automaticamente", "item")
                         nome_final = self._nome_final_allin(topico, pasta_tese)
                         caminho_final = caminho_final.replace(pasta_tese / f"{nome_final}.pdf")
                     else:

@@ -60,6 +60,18 @@ def subpastas_numeradas(pasta_mae: Path) -> list[Path]:
     return candidatas
 
 
+def ultimo_documento(pasta_mae: Path) -> Path | None:
+    """Devolve o último PDF na mesma ordem que `juntar_tese` usaria pra
+    juntar a tese inteira, ou None se não houver nenhum. Usado para checar
+    se um documento (ex.: anexo fixo, ver anexo_fixo.py) já foi incluído
+    manualmente antes de anexar de novo."""
+    for subpasta in reversed(subpastas_numeradas(pasta_mae)):
+        arquivos = pdfs_em_ordem(subpasta)
+        if arquivos:
+            return arquivos[-1]
+    return None
+
+
 def nome_saida(origem: Path) -> str:
     return f"{origem.name}.pdf"
 
