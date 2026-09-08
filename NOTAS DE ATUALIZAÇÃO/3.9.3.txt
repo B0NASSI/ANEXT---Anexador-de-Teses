@@ -1,0 +1,4 @@
+- Corrigido: um documento seu numerado "0.1", "0.2" etc. dentro da
+  pasta do segurado podia ser apagado sem querer ao gerar as capas de
+  novo no All-in-one — o programa confundia com uma capa antiga de
+  uma rodada anterior.

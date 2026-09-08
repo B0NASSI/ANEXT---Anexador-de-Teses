@@ -1676,14 +1676,19 @@ class AplicativoDivisorPDF:
                 return
 
         # avisa se alguma subpasta de segurado já tem uma capa de uma
-        # rodada anterior (arquivo começando com "0.") — sem isso, rodar
-        # de novo com um tópico/título diferente deixaria a capa antiga
-        # E a nova juntas na mesma subpasta, duplicando no PDF final
+        # rodada anterior (nome gerado sempre como "0. Tópico N - ...") —
+        # sem isso, rodar de novo com um tópico/título diferente deixaria a
+        # capa antiga E a nova juntas na mesma subpasta, duplicando no PDF
+        # final. O padrão precisa casar "0. Tópico" por extenso (não só
+        # "0\." solto) — "0\." sozinho também casava com documentos do
+        # próprio usuário numerados "0.1", "0.2" etc., apagando-os por
+        # engano (achado real: bug relatado em produção)
         capas_antigas = []
         for subpasta in subpastas:
             achadas = [
                 arquivo for arquivo in subpasta.iterdir()
-                if arquivo.is_file() and arquivo.suffix.lower() == ".pdf" and re.match(r"0\.", arquivo.name)
+                if arquivo.is_file() and arquivo.suffix.lower() == ".pdf"
+                and re.match(r"0\.\s*Tópico\s", arquivo.name, re.IGNORECASE)
             ]
             if achadas:
                 capas_antigas.append((subpasta, achadas))

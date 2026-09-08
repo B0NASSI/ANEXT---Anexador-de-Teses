@@ -9,7 +9,7 @@ App interno (Tkinter + ttkbootstrap) que gera, divide e junta os documentos de c
 - Monorepo privado `claude-code` (GitHub, B0NASSI) — este repositório, pasta `ANEXT/`. É a fonte de verdade.
 - Espelho de código-fonte público `ANEXT---Anexador-de-Teses` (GitHub, B0NASSI) — é dali que o launcher instalado baixa as releases (`GITHUB_OWNER`/`GITHUB_REPO` em `src/launcher.py`). Precisa ser sincronizado manualmente a cada release (não é um subtree/submodule de verdade — ver "Processo de release" abaixo).
 
-## Versão atual: 3.9.2
+## Versão atual: 3.9.3
 
 Changelog completo em `NOTAS DE ATUALIZAÇÃO/*.txt` (um arquivo por versão — também aparece dentro do próprio app, no menu "Notas de atualização").
 
