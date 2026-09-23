@@ -30,16 +30,21 @@ import log_setup
 from limites_caminho import truncar_para_caminho
 import tabela
 import tema
-import visual
 from gerar import gerar_pdf_capas, sanitizar_nome_arquivo
 from pdf import ConversorPDF, ConversorPDFIndisponivel
 from separar_capas import calcular_destinos, pastas_segurados_em_ordem, separar_capas
 
-LARGURA_JANELA = 1000
-ALTURA_BANNER = 116
+LARGURA_JANELA = 1160  # 232 px de barra lateral + o mesmo espaço útil de antes pro formulário
+LARGURA_SIDEBAR = 232
 ALTURA_JANELA = 979  # +meio cm sobre os 960 originais, pra sobrar espaço no Resultado durante o processamento
 NOME_APP = "ANEXT - Anexador de Teses"
-DESCRICAO_APP = "Gera, divide e junta os documentos de cada segurado da tese em um PDF"
+
+PAGINAS = (
+    ("All-in-one", "⚡", "Gera as capas, divide e junta os documentos de cada segurado num PDF — tudo de uma vez."),
+    ("Gerar capas", "▤", "Gera as capas individuais de cada segurado a partir da tabela da tese."),
+    ("Dividir capas", "✂", "Divide o PDF de capas e coloca cada capa na pasta do seu segurado."),
+    ("Juntar PDFs", "⧉", "Junta os documentos numerados de cada segurado num único PDF final."),
+)
 
 TEXTO_MANUAL = """\
 ANEXT — Anexador de Teses
@@ -302,6 +307,28 @@ def _normalizar_travessao(texto: str) -> str:
     return re.sub(r"(?<=\s)-(?=\s)", "–", texto)
 
 
+class BotaoResultado(ttk.Button):
+    """Botão de pós-resultado ("Abrir pasta", "Abrir PDF"): fica escondido até
+    existir resultado, em vez de ocupar a barra apagado. state=NORMAL mostra,
+    state=DISABLED esconde — os pontos do código que já habilitam/desabilitam
+    esses botões continuam valendo sem mudar nada."""
+
+    def __init__(self, master, pack_opts: dict, **kwargs):
+        self._pack_opts = pack_opts
+        super().__init__(master, **kwargs)
+
+    def configure(self, cnf=None, **kwargs):
+        resultado = super().configure(cnf, **kwargs)
+        estado = kwargs.get("state")
+        if estado == NORMAL:
+            self.pack(**self._pack_opts)
+        elif estado == DISABLED:
+            self.pack_forget()
+        return resultado
+
+    config = configure
+
+
 def _mostrar_inicio_ao_colar(entry: ttk.Entry) -> None:
     """Depois de colar um título longo (comum: copiado do índice do
     documento original, com o número do tópico na frente — ex.: "9. Nome
@@ -320,6 +347,34 @@ def _posicionar_um_pouco_acima_do_centro(root, largura: int, altura: int) -> Non
     x = (root.winfo_screenwidth() - largura) // 2
     y = max((root.winfo_screenheight() - altura) // 2 - 50, 0)
     root.geometry(f"{largura}x{altura}+{x}+{y}")
+
+
+def _colorir_barra_titulo(root, cor_hex: str) -> None:
+    """Pinta a barra de título nativa do Windows (a do próprio SO, fora do
+    controle do Tkinter) na cor do tema, em vez de deixá-la no cinza/branco
+    padrão — só funciona no Windows 11 (DWM 22H2+); em versões sem suporte
+    a API simplesmente falha e é ignorada, a janela fica com a barra padrão."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        root.update_idletasks()
+        GA_ROOT = 2
+        hwnd = ctypes.windll.user32.GetAncestor(root.winfo_id(), GA_ROOT)
+        r, g, b = (int(cor_hex[i : i + 2], 16) for i in (1, 3, 5))
+        cor_ref = ctypes.c_int(r | (g << 8) | (b << 16))
+        DWMWA_CAPTION_COLOR = 35
+        DWMWA_TEXT_COLOR = 36
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            hwnd, DWMWA_CAPTION_COLOR, ctypes.byref(cor_ref), ctypes.sizeof(cor_ref)
+        )
+        texto_branco = ctypes.c_int(0x00FFFFFF)
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            hwnd, DWMWA_TEXT_COLOR, ctypes.byref(texto_branco), ctypes.sizeof(texto_branco)
+        )
+    except Exception:
+        pass
 
 
 def _posicionar_sobre_janela(referencia, janela, largura: int, altura: int) -> None:
@@ -371,6 +426,21 @@ def _mensagem_erro_amigavel(exc: Exception) -> str:
             "verifique se a pasta da tese está totalmente sincronizada/baixada."
         )
     return str(exc)
+
+
+def _carregar_logo_para_fundo_escuro(caminho: str, altura: int) -> ImageTk.PhotoImage:
+    """Logo do escritório pra usar sobre o azul-marinho: o azul do logo vira
+    branco e o laranja do "&" fica como está."""
+    imagem = Image.open(caminho).convert("RGBA")
+    imagem = imagem.resize((max(1, int(imagem.width * altura / imagem.height)), altura), Image.LANCZOS)
+    pixels = imagem.load()
+    for y in range(imagem.height):
+        for x in range(imagem.width):
+            r, g, b, a = pixels[x, y]
+            laranja = r > 180 and 60 < g < 170 and b < 90
+            if a and not laranja:
+                pixels[x, y] = (255, 255, 255, a)
+    return ImageTk.PhotoImage(imagem)
 
 
 def _carregar_imagem_altura(caminho: str, altura: int) -> ImageTk.PhotoImage:
@@ -594,9 +664,10 @@ class AplicativoDivisorPDF:
         root.title(NOME_APP)
         root.geometry(f"{LARGURA_JANELA}x{ALTURA_JANELA}")
         root.resizable(True, True)
-        root.minsize(720, 560)
+        root.minsize(900, 620)
         _posicionar_um_pouco_acima_do_centro(root, LARGURA_JANELA, ALTURA_JANELA)
         tema.aplicar(root)
+        _colorir_barra_titulo(root, tema.COR_PRIMARIA)
         try:
             root.iconbitmap(_caminho_recurso("assets/pdf.ico"))
         except tk.TclError:
@@ -631,22 +702,25 @@ class AplicativoDivisorPDF:
         self._ultimo_pdf_capas: Path | None = None
         self._config = _carregar_config()
 
-        self._montar_banner(root)
-        self._montar_barra_superior(root)
-        self._montar_rodape(root)
         self._instalar_menu_contexto(root)
+        root.bind("<Control-l>", lambda _: self._abrir_log())
+        root.bind("<Control-L>", lambda _: self._abrir_log())
 
-        notebook = ttk.Notebook(root)
-        notebook.pack(fill=BOTH, expand=True, padx=14, pady=(14, 0))
+        conteudo = ttk.Frame(root)
+        conteudo.pack(side=RIGHT, fill=BOTH, expand=True)
 
-        aba_allin = ttk.Frame(notebook, padding=(20, 18))
-        aba_capas = ttk.Frame(notebook, padding=(20, 18))
-        aba_dividir = ttk.Frame(notebook, padding=(20, 18))
-        aba_juntar = ttk.Frame(notebook, padding=(20, 18))
-        notebook.add(aba_allin, text="  All-in-one  ")
-        notebook.add(aba_capas, text="  Gerar capas  ")
-        notebook.add(aba_dividir, text="  Dividir capas  ")
-        notebook.add(aba_juntar, text="  Juntar PDFs  ")
+        # o Notebook só gerencia as páginas; quem navega é a barra lateral
+        self.notebook = ttk.Notebook(conteudo)
+        self.notebook.pack(fill=BOTH, expand=True, padx=28, pady=(4, 18))
+
+        aba_allin = ttk.Frame(self.notebook, padding=(2, 22, 2, 10))
+        aba_capas = ttk.Frame(self.notebook, padding=(2, 22, 2, 10))
+        aba_dividir = ttk.Frame(self.notebook, padding=(2, 22, 2, 10))
+        aba_juntar = ttk.Frame(self.notebook, padding=(2, 22, 2, 10))
+        for aba, (titulo, _icone, descricao) in zip((aba_allin, aba_capas, aba_dividir, aba_juntar), PAGINAS):
+            self.notebook.add(aba)
+            self._montar_titulo_pagina(aba, titulo, descricao)
+        self._montar_sidebar(root)
 
         aba_allin.columnconfigure(0, weight=1)
         self._montar_card_allin(aba_allin)
@@ -726,45 +800,103 @@ class AplicativoDivisorPDF:
         for classe in ("TEntry", "Entry", "Text", "TSpinbox", "TCombobox"):
             root.bind_class(classe, "<Button-3>", mostrar)
 
-    def _montar_banner(self, root):
-        self._label_banner = tk.Label(root, borderwidth=0, anchor="w")
-        self._label_banner.pack(fill=X)
-        self._largura_banner_atual = 0
-        self._redesenho_banner_pendente = None
-        self._atualizar_banner(LARGURA_JANELA)
-        # com a janela redimensionável, o banner é redesenhado na nova
-        # largura (com atraso curto, para não redesenhar a cada pixel
-        # durante o arraste da borda)
-        root.bind("<Configure>", self._ao_redimensionar_janela, add="+")
-        root.bind("<Control-l>", lambda _: self._abrir_log())
-        root.bind("<Control-L>", lambda _: self._abrir_log())
+    def _montar_sidebar(self, root):
+        barra = ttk.Frame(root, style="Sidebar.TFrame", width=LARGURA_SIDEBAR)
+        barra.pack(side=LEFT, fill=Y)
+        barra.pack_propagate(False)
 
-    def _atualizar_banner(self, largura: int) -> None:
-        largura = max(int(largura), 400)
-        if largura == self._largura_banner_atual:
-            return
-        self._largura_banner_atual = largura
-        imagem = visual.gerar_banner(
-            largura=largura,
-            altura=ALTURA_BANNER,
-            cor_inicio=tema.COR_PRIMARIA,
-            cor_fim="#1A1C3D",
-            cor_destaque=tema.COR_SECUNDARIA,
-            icone_path=_caminho_recurso("assets/folder interno.ico"),
-            titulo=NOME_APP,
-            subtitulo=DESCRICAO_APP,
+        # marca do escritório no topo, com a faixa laranja que o banner antigo tinha
+        topo = ttk.Frame(barra, style="Sidebar.TFrame", padding=(20, 26, 20, 18))
+        topo.pack(fill=X)
+        self._imagem_marca = _carregar_logo_para_fundo_escuro(
+            _caminho_recurso("assets/Logo RS completa colorida.png"), 46,
         )
-        self._imagem_banner = ImageTk.PhotoImage(imagem)
-        self._label_banner.configure(image=self._imagem_banner)
+        ttk.Label(topo, image=self._imagem_marca, style="Sidebar.TLabel").pack(anchor=W)
+        ttk.Frame(barra, style="Acento.TFrame", height=3).pack(fill=X, padx=20)
 
-    def _ao_redimensionar_janela(self, event) -> None:
-        if event.widget is not self.root or event.width == self._largura_banner_atual:
-            return
-        if self._redesenho_banner_pendente is not None:
-            self.root.after_cancel(self._redesenho_banner_pendente)
-        self._redesenho_banner_pendente = self.root.after(
-            120, lambda: self._atualizar_banner(self.root.winfo_width())
-        )
+        produto = ttk.Frame(barra, style="Sidebar.TFrame", padding=(20, 16, 20, 14))
+        produto.pack(fill=X)
+        ttk.Label(produto, text="ANEXT", style="Sidebar.TLabel", font=("Segoe UI", 20, "bold")).pack(anchor=W)
+        ttk.Label(produto, text="Anexador de Teses", style="SidebarSuave.TLabel").pack(anchor=W)
+
+        # cada item tem uma barrinha à esquerda que acende em laranja quando é o ativo
+        self._botoes_nav = []
+        self._acentos_nav = []
+        for indice, (titulo, icone, _descricao) in enumerate(PAGINAS):
+            linha = ttk.Frame(barra, style="Sidebar.TFrame")
+            linha.pack(fill=X)
+            acento = ttk.Frame(linha, style="Sidebar.TFrame", width=4)
+            acento.pack(side=LEFT, fill=Y)
+            botao = ttk.Button(
+                linha, text=f"{icone}   {titulo}", style="Nav.TButton",
+                command=lambda i=indice: self._ir_para(i),
+            )
+            botao.pack(side=LEFT, fill=X, expand=True)
+            self._botoes_nav.append(botao)
+            self._acentos_nav.append(acento)
+
+        rodape = ttk.Frame(barra, style="Sidebar.TFrame", padding=(0, 0, 0, 16))
+        rodape.pack(side=BOTTOM, fill=X)
+        # divisor sutil separando o rodapé do resto da sidebar - sem ele o rodapé ficava
+        # "boiando" no meio do azul, sem nada delimitando onde a navegação termina. side=
+        # BOTTOM e packado DEPOIS de "rodape" (que também é BOTTOM) - assim ele ocupa a
+        # fatia logo ACIMA do rodapé, não logo abaixo dos itens de navegação lá em cima
+        # (pack empilha widgets BOTTOM na ordem em que são chamados, de baixo pra cima).
+        ttk.Frame(barra, style="SidebarDivisor.TFrame", height=1).pack(side=BOTTOM, fill=X, padx=20, pady=(0, 4))
+        self._criar_link_sidebar(rodape, "ⓘ", "Notas de atualização", self._abrir_notas_atualizacao)
+        self._criar_link_sidebar(rodape, "❔", "Manual rápido", self._abrir_manual)
+        ttk.Label(rodape, text=f"Versão {_ler_versao_local()}", style="SidebarSuave.TLabel").pack(anchor=W, padx=20, pady=(12, 0))
+
+        self._ir_para(0)
+
+    def _criar_link_sidebar(self, pai, icone: str, texto: str, comando) -> None:
+        """Link do rodapé da barra lateral (ícone + texto). Usa dois rótulos
+        em vez de um único texto "ícone + espaços + título" num Button: o
+        ícone fica numa coluna de largura FIXA EM PIXELS (`pack_propagate`
+        desligado), então o texto das várias linhas sempre começa no mesmo
+        X — não importa a largura do glifo do ícone (ⓘ e ❔ não têm nem de
+        longe a mesma largura na fonte; um `width` em "caracteres" no
+        Label não bastava porque esses glifos maiores que um caractere
+        latino comum estouram esse mínimo e cada um estoura de um jeito)."""
+        linha = ttk.Frame(pai, style="Sidebar.TFrame", cursor="hand2")
+        linha.pack(fill=X)
+        caixa_icone = ttk.Frame(linha, style="Sidebar.TFrame", width=28, height=24)
+        caixa_icone.pack(side=LEFT, padx=(20, 0), pady=6)
+        caixa_icone.pack_propagate(False)
+        # ícone num azul mais vivo que o texto (SidebarIcone, não SidebarLink) - dá um
+        # ponto de cor e hierarquia (marcador vs. texto secundário) em vez dos dois na
+        # mesma cor apagada.
+        rotulo_icone = ttk.Label(caixa_icone, text=icone, style="SidebarIcone.TLabel", anchor=CENTER)
+        rotulo_icone.pack(fill=BOTH, expand=True)
+        rotulo_texto = ttk.Label(linha, text=texto, style="SidebarLink.TLabel", anchor=W)
+        rotulo_texto.pack(side=LEFT, fill=X, expand=True, pady=6)
+
+        def _ao_passar(_evt=None):
+            rotulo_icone.configure(style="SidebarIconeAtivo.TLabel")
+            rotulo_texto.configure(style="SidebarLinkAtivo.TLabel")
+
+        def _ao_sair(_evt=None):
+            rotulo_icone.configure(style="SidebarIcone.TLabel")
+            rotulo_texto.configure(style="SidebarLink.TLabel")
+
+        for widget in (linha, caixa_icone, rotulo_icone, rotulo_texto):
+            widget.configure(cursor="hand2")
+            widget.bind("<Enter>", _ao_passar)
+            widget.bind("<Leave>", _ao_sair)
+            widget.bind("<Button-1>", lambda _evt: comando())
+
+    def _ir_para(self, indice: int) -> None:
+        self.notebook.select(indice)
+        for i, (botao, acento) in enumerate(zip(self._botoes_nav, self._acentos_nav)):
+            ativo = i == indice
+            botao.configure(style="NavAtivo.TButton" if ativo else "Nav.TButton")
+            acento.configure(style="Acento.TFrame" if ativo else "Sidebar.TFrame")
+
+    def _montar_titulo_pagina(self, pai, titulo: str, descricao: str) -> None:
+        cabecalho = ttk.Frame(pai)
+        cabecalho.pack(fill=X, pady=(0, 16))
+        ttk.Label(cabecalho, text=titulo, style="Titulo.TLabel").pack(anchor=W)
+        ttk.Label(cabecalho, text=descricao, style="Descricao.TLabel").pack(anchor=W, pady=(2, 0))
 
     def _abrir_log(self) -> None:
         caminho_log = _pasta_executavel() / "logs" / "anext.log"
@@ -782,46 +914,35 @@ class AplicativoDivisorPDF:
         except Exception:
             os.startfile(str(caminho_log))
 
-    def _montar_barra_superior(self, root):
-        barra = ttk.Frame(root, padding=(14, 6, 14, 0))
-        barra.pack(fill=X)
-        ttk.Button(
-            barra, text="❓ Manual rápido", command=self._abrir_manual, bootstyle="primary-link",
-        ).pack(side=RIGHT)
-        self._imagem_notas = _carregar_imagem_altura(_caminho_recurso("assets/icons8-informações-50.png"), 14)
-        ttk.Button(
-            barra, text=" Notas de atualização", image=self._imagem_notas, compound=LEFT,
-            command=self._abrir_notas_atualizacao, bootstyle="primary-link",
-        ).pack(side=RIGHT, padx=(0, 8))
-
     def _montar_card_arquivos(self, pai):
-        cartao = ttk.Labelframe(pai, text=" Arquivos ", padding=18, bootstyle="secondary")
+        cartao = ttk.Labelframe(pai, text=" Arquivos ", padding=18)
         cartao.pack(fill=X, pady=(0, 18))
         cartao.columnconfigure(0, weight=1)
 
-        ttk.Label(cartao, text="Arquivo PDF", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky=W)
+        ttk.Label(cartao, text="Arquivo PDF", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, sticky=W)
         linha1 = ttk.Frame(cartao)
         linha1.grid(row=1, column=0, sticky=EW, pady=(6, 16))
         linha1.columnconfigure(0, weight=1)
         ttk.Entry(linha1, textvariable=self.var_entrada).grid(row=0, column=0, sticky=EW, padx=(0, 8))
-        ttk.Button(linha1, text="Procurar...", command=self._escolher_entrada, bootstyle="primary-outline").grid(row=0, column=1)
+        ttk.Button(linha1, text="Procurar...", command=self._escolher_entrada, bootstyle="light").grid(row=0, column=1)
 
-        ttk.Label(cartao, text="Pasta de salvamento", font=("Segoe UI", 9, "bold")).grid(row=2, column=0, sticky=W)
+        ttk.Label(cartao, text="Pasta de salvamento", font=("Segoe UI", 10, "bold")).grid(row=2, column=0, sticky=W)
         linha2 = ttk.Frame(cartao)
         linha2.grid(row=3, column=0, sticky=EW, pady=(6, 0))
         linha2.columnconfigure(0, weight=1)
         ttk.Entry(linha2, textvariable=self.var_saida).grid(row=0, column=0, sticky=EW, padx=(0, 8))
-        ttk.Button(linha2, text="Procurar...", command=self._escolher_saida, bootstyle="primary-outline").grid(row=0, column=1)
+        ttk.Button(linha2, text="Procurar...", command=self._escolher_saida, bootstyle="light").grid(row=0, column=1)
 
     def _montar_acoes(self, pai):
         acoes = ttk.Frame(pai)
         acoes.pack(fill=X, pady=(0, 18))
-        self.botao_abrir_pasta = ttk.Button(
-            acoes, text="📂  Abrir pasta de salvamento", command=self._abrir_pasta_saida, bootstyle="primary-outline",
+        botao_limpar = ttk.Button(acoes, text="🧹  Limpar", command=self._limpar, bootstyle="danger-outline")
+        botao_limpar.pack(side=LEFT)
+        self.botao_abrir_pasta = BotaoResultado(
+            acoes, dict(side=LEFT, padx=(0, 10), before=botao_limpar),
+            text="📂  Abrir pasta de salvamento", command=self._abrir_pasta_saida, bootstyle="primary",
             state=DISABLED,
         )
-        self.botao_abrir_pasta.pack(side=LEFT)
-        ttk.Button(acoes, text="🧹  Limpar", command=self._limpar, bootstyle="danger-outline").pack(side=LEFT, padx=(10, 0))
         self.botao_dividir = ttk.Button(
             acoes, text="✂  Dividir PDF", command=self._dividir, bootstyle="secondary", width=18
         )
@@ -850,15 +971,6 @@ class AplicativoDivisorPDF:
         self.log.text.configure(state=NORMAL)
         self.log.text.delete("1.0", "end")
         self._mostrar_mensagem_inicial()
-
-    def _montar_rodape(self, root):
-        rodape = ttk.Frame(root, padding=(14, 11, 10, 8))
-        rodape.pack(fill=X, side=BOTTOM)
-
-        self._imagem_logo = _carregar_imagem_altura(_caminho_recurso("assets/Logo RS completa colorida.png"), 24)
-        tk.Label(rodape, image=self._imagem_logo, borderwidth=0, background=tema.COR_FUNDO).pack(side=LEFT)
-
-        ttk.Label(rodape, text=f"versão {_ler_versao_local()}", bootstyle="secondary", font=("Segoe UI", 8)).pack(side=RIGHT)
 
     def _abrir_manual(self):
         janela = ttk.Toplevel(self.root)
@@ -1005,12 +1117,12 @@ class AplicativoDivisorPDF:
             os.startfile(saida)
 
     def _montar_card_juntar(self, pai):
-        cartao = ttk.Labelframe(pai, text=" Pastas ", padding=18, bootstyle="secondary")
+        cartao = ttk.Labelframe(pai, text=" Pastas ", padding=18)
         cartao.pack(fill=X, pady=(0, 18))
         cartao.columnconfigure(0, weight=1)
 
         modos = ttk.Frame(cartao)
-        modos.grid(row=0, column=0, columnspan=2, sticky=W, pady=(0, 14))
+        modos.grid(row=0, column=0, columnspan=2, sticky=W, pady=(0, 2))
         ttk.Radiobutton(
             modos, text="Tese completa (todos os segurados)", variable=self.var_modo_juntar, value="tese",
             bootstyle="secondary",
@@ -1018,35 +1130,42 @@ class AplicativoDivisorPDF:
         ttk.Radiobutton(
             modos, text="Pasta única", variable=self.var_modo_juntar, value="unica", bootstyle="secondary"
         ).pack(side=LEFT)
+        ttk.Label(
+            cartao,
+            text="Tese completa: selecione a pasta da tese e sai um PDF único com todos os segurados, em ordem. "
+                 "Pasta única: selecione a pasta de um segurado só — útil pra corrigir um sem refazer tudo.",
+            style="Ajuda.TLabel", wraplength=860, justify=LEFT,
+        ).grid(row=1, column=0, columnspan=2, sticky=W, pady=(0, 12))
 
-        ttk.Label(cartao, text="Pasta de origem", font=("Segoe UI", 9, "bold")).grid(row=1, column=0, sticky=W)
+        ttk.Label(cartao, text="Pasta de origem", font=("Segoe UI", 10, "bold")).grid(row=2, column=0, sticky=W)
         linha1 = ttk.Frame(cartao)
-        linha1.grid(row=2, column=0, sticky=EW, pady=(6, 16))
+        linha1.grid(row=3, column=0, sticky=EW, pady=(6, 16))
         linha1.columnconfigure(0, weight=1)
         ttk.Entry(linha1, textvariable=self.var_origem_juntar).grid(row=0, column=0, sticky=EW, padx=(0, 8))
-        ttk.Button(linha1, text="Procurar...", command=self._escolher_origem_juntar, bootstyle="primary-outline").grid(row=0, column=1)
+        ttk.Button(linha1, text="Procurar...", command=self._escolher_origem_juntar, bootstyle="light").grid(row=0, column=1)
 
-        ttk.Label(cartao, text="Pasta de salvamento", font=("Segoe UI", 9, "bold")).grid(row=3, column=0, sticky=W)
+        ttk.Label(cartao, text="Pasta de salvamento", font=("Segoe UI", 10, "bold")).grid(row=4, column=0, sticky=W)
         linha2 = ttk.Frame(cartao)
-        linha2.grid(row=4, column=0, sticky=EW, pady=(6, 0))
+        linha2.grid(row=5, column=0, sticky=EW, pady=(6, 0))
         linha2.columnconfigure(0, weight=1)
         ttk.Entry(linha2, textvariable=self.var_saida_juntar).grid(row=0, column=0, sticky=EW, padx=(0, 8))
-        ttk.Button(linha2, text="Procurar...", command=self._escolher_saida_juntar, bootstyle="primary-outline").grid(row=0, column=1)
+        ttk.Button(linha2, text="Procurar...", command=self._escolher_saida_juntar, bootstyle="light").grid(row=0, column=1)
 
     def _montar_acoes_juntar(self, pai):
         acoes = ttk.Frame(pai)
         acoes.pack(fill=X, pady=(0, 18))
-        self.botao_abrir_pasta_juntar = ttk.Button(
-            acoes, text="📂  Abrir pasta de salvamento", command=self._abrir_pasta_juntar, bootstyle="primary-outline",
+        botao_limpar = ttk.Button(acoes, text="🧹  Limpar", command=self._limpar_juntar, bootstyle="danger-outline")
+        botao_limpar.pack(side=LEFT)
+        self.botao_abrir_pasta_juntar = BotaoResultado(
+            acoes, dict(side=LEFT, padx=(0, 10), before=botao_limpar),
+            text="📂  Abrir pasta de salvamento", command=self._abrir_pasta_juntar, bootstyle="primary",
             state=DISABLED,
         )
-        self.botao_abrir_pasta_juntar.pack(side=LEFT)
-        self.botao_abrir_pdf_juntar = ttk.Button(
-            acoes, text="👁  Abrir PDF gerado", command=self._abrir_pdf_juntar, bootstyle="primary-outline",
+        self.botao_abrir_pdf_juntar = BotaoResultado(
+            acoes, dict(side=LEFT, padx=(0, 10), before=botao_limpar),
+            text="👁  Abrir PDF gerado", command=self._abrir_pdf_juntar, bootstyle="primary",
             state=DISABLED,
         )
-        self.botao_abrir_pdf_juntar.pack(side=LEFT, padx=(10, 0))
-        ttk.Button(acoes, text="🧹  Limpar", command=self._limpar_juntar, bootstyle="danger-outline").pack(side=LEFT, padx=(10, 0))
         self.botao_juntar = ttk.Button(
             acoes, text="🔗  Juntar PDFs", command=self._juntar, bootstyle="secondary", width=18
         )
@@ -1243,7 +1362,7 @@ class AplicativoDivisorPDF:
 
         botao_confirmar = ttk.Button(rodape, text="Confirmar", command=confirmar, bootstyle="secondary", width=14)
         botao_confirmar.pack(side=RIGHT)
-        ttk.Button(rodape, text="Cancelar", command=janela.destroy, bootstyle="primary-outline", width=14).pack(side=RIGHT, padx=(0, 10))
+        ttk.Button(rodape, text="Cancelar", command=janela.destroy, bootstyle="light", width=14).pack(side=RIGHT, padx=(0, 10))
         botao_confirmar.focus_set()
 
         janela.update_idletasks()
@@ -1353,26 +1472,26 @@ class AplicativoDivisorPDF:
         # padding/espaçamentos mais enxutos do que nas outras abas: esta é
         # a aba com mais cards empilhados (Tese + Tabela + Pastas), e
         # precisa sobrar espaço pro Resultado na altura padrão da janela
-        cartao = ttk.Labelframe(pai, text=" Tese ", padding=12, bootstyle="secondary")
+        cartao = ttk.Labelframe(pai, text=" 1. Tese ", padding=12)
         cartao.pack(fill=X, pady=(0, 10))
         cartao.columnconfigure(1, weight=1)
 
-        ttk.Label(cartao, text="Número do tópico", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky=W, padx=(0, 10), pady=(0, 6))
+        ttk.Label(cartao, text="Número do tópico", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, sticky=W, padx=(0, 10), pady=(0, 6))
         ttk.Entry(cartao, textvariable=self.var_topico_allin, width=8).grid(row=0, column=1, sticky=W, pady=(0, 6))
-        ttk.Label(cartao, text="Título da tese", font=("Segoe UI", 9, "bold")).grid(row=1, column=0, sticky=W, padx=(0, 10))
+        ttk.Label(cartao, text="Título da tese", font=("Segoe UI", 10, "bold")).grid(row=1, column=0, sticky=W, padx=(0, 10))
         entry_titulo_allin = ttk.Entry(cartao, textvariable=self.var_titulo_allin)
         entry_titulo_allin.grid(row=1, column=1, sticky=EW)
         _mostrar_inicio_ao_colar(entry_titulo_allin)
 
         self.label_anexo_fixo_allin = ttk.Label(
             cartao, text="📎  Esta tese leva um documento fixo como último anexo",
-            bootstyle="secondary", font=("Segoe UI", 8),
+            style="Ajuda.TLabel",
         )
         self.label_anexo_fixo_allin.grid(row=2, column=1, sticky=W, pady=(2, 0))
         self.label_anexo_fixo_allin.grid_remove()
         self.var_titulo_allin.trace_add("write", self._atualizar_aviso_anexo_fixo_allin)
 
-        tabela_card = ttk.Labelframe(pai, text=" Tabela de segurados ", padding=12, bootstyle="secondary")
+        tabela_card = ttk.Labelframe(pai, text=" 2. Tabela de segurados ", padding=12)
         tabela_card.pack(fill=X, pady=(0, 10))
         tabela_card.columnconfigure(0, weight=1)
 
@@ -1397,10 +1516,8 @@ class AplicativoDivisorPDF:
         ttk.Entry(self.frame_tabela_docx_allin, textvariable=self.var_docx_tabela_allin).grid(row=0, column=1, sticky=EW)
         ttk.Label(
             self.frame_tabela_docx_allin,
-            text="⚠️ Se a tabela ocupar mais de uma página, desative a opção \"Repetir "
-                 "linhas de cabeçalho\" — caso contrário, o programa não conseguirá ler "
-                 "os dados corretamente.",
-            bootstyle="warning", font=("Segoe UI", 8, "bold"), wraplength=760, justify=LEFT,
+            text="⚠ Tabela com mais de uma página: desative a função \"Repetir linhas de cabeçalho\" no Word.",
+            style="Aviso.TLabel", wraplength=760, justify=LEFT,
         ).grid(row=1, column=0, columnspan=2, sticky=W, pady=(6, 0))
 
         self.colar_allin = CaixaColarTabela(tabela_card, self.root, ao_capturar=self._atualizar_labels_larguras)
@@ -1408,10 +1525,10 @@ class AplicativoDivisorPDF:
         ttk.Button(
             self.colar_allin.rodape, text="⚙  Padronizar tabela...",
             command=lambda: self._abrir_padronizar_tabela(self.colar_allin, self.var_titulo_allin),
-            bootstyle="primary-outline",
+            bootstyle="light",
         ).pack(side=LEFT)
         self.label_larguras_allin = ttk.Label(
-            self.colar_allin.rodape, text="", bootstyle="secondary", font=("Segoe UI", 8),
+            self.colar_allin.rodape, text="", style="Ajuda.TLabel",
         )
         self.label_larguras_allin.pack(side=LEFT, padx=(10, 0))
 
@@ -1419,27 +1536,27 @@ class AplicativoDivisorPDF:
         linha_base.grid(row=0, column=0, sticky=W, pady=(0, 8))
         ttk.Button(
             linha_base, text="📥  Baixar documento base das tabelas",
-            command=self._baixar_base_tabelas, bootstyle="primary-outline",
+            command=self._baixar_base_tabelas, bootstyle="light",
         ).pack(side=LEFT)
         ttk.Label(
             linha_base, text="Documento em branco com as margens corretas — monte a sua tabela nele antes de importar.",
-            bootstyle="secondary", font=("Segoe UI", 8),
+            style="Ajuda.TLabel",
         ).pack(side=LEFT, padx=(10, 0))
 
-        pastas_card = ttk.Labelframe(pai, text=" Pastas ", padding=12, bootstyle="secondary")
+        pastas_card = ttk.Labelframe(pai, text=" 3. Pastas ", padding=12)
         pastas_card.pack(fill=X)
         pastas_card.columnconfigure(0, weight=1)
 
-        ttk.Label(pastas_card, text="Pasta da tese", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky=W)
+        ttk.Label(pastas_card, text="Pasta da tese", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, sticky=W)
         ttk.Label(
             pastas_card, text="Pasta mãe com as subpastas dos segurados (ex.: \"1. NOME\", \"2. NOME\"...).",
-            bootstyle="secondary", font=("Segoe UI", 8),
+            style="Ajuda.TLabel",
         ).grid(row=1, column=0, sticky=W, pady=(0, 4))
         linha_tese = ttk.Frame(pastas_card)
         linha_tese.grid(row=2, column=0, sticky=EW)
         linha_tese.columnconfigure(0, weight=1)
         ttk.Entry(linha_tese, textvariable=self.var_pasta_tese_allin).grid(row=0, column=0, sticky=EW, padx=(0, 8))
-        ttk.Button(linha_tese, text="Procurar...", command=self._escolher_pasta_tese_allin, bootstyle="primary-outline").grid(row=0, column=1)
+        ttk.Button(linha_tese, text="Procurar...", command=self._escolher_pasta_tese_allin, bootstyle="light").grid(row=0, column=1)
 
         ttk.Checkbutton(
             pastas_card, text="Gerar também um arquivo Word (.docx) das capas", variable=self.var_gerar_docx_allin,
@@ -1472,17 +1589,18 @@ class AplicativoDivisorPDF:
     def _montar_acoes_allin(self, pai):
         acoes = ttk.Frame(pai)
         acoes.pack(fill=X, pady=(10, 10))
-        self.botao_abrir_pasta_allin = ttk.Button(
-            acoes, text="📂  Abrir pasta da tese", command=self._abrir_pasta_allin,
-            bootstyle="primary-outline", state=DISABLED,
+        botao_limpar = ttk.Button(acoes, text="🧹  Limpar", command=self._limpar_allin, bootstyle="danger-outline")
+        botao_limpar.pack(side=LEFT)
+        self.botao_abrir_pasta_allin = BotaoResultado(
+            acoes, dict(side=LEFT, padx=(0, 10), before=botao_limpar),
+            text="📂  Abrir pasta da tese", command=self._abrir_pasta_allin,
+            bootstyle="primary", state=DISABLED,
         )
-        self.botao_abrir_pasta_allin.pack(side=LEFT)
-        self.botao_abrir_pdf_allin = ttk.Button(
-            acoes, text="👁  Abrir PDF gerado", command=self._abrir_pdf_allin,
-            bootstyle="primary-outline", state=DISABLED,
+        self.botao_abrir_pdf_allin = BotaoResultado(
+            acoes, dict(side=LEFT, padx=(0, 10), before=botao_limpar),
+            text="👁  Abrir PDF gerado", command=self._abrir_pdf_allin,
+            bootstyle="primary", state=DISABLED,
         )
-        self.botao_abrir_pdf_allin.pack(side=LEFT, padx=(10, 0))
-        ttk.Button(acoes, text="🧹  Limpar", command=self._limpar_allin, bootstyle="danger-outline").pack(side=LEFT, padx=(10, 0))
         self.botao_gerar_allin = ttk.Button(
             acoes, text="🚀  Gerar anexo completo", command=self._gerar_allin, bootstyle="secondary",
         )
@@ -1932,23 +2050,25 @@ class AplicativoDivisorPDF:
     # =========================================================================
 
     def _montar_card_capas(self, pai):
-        cartao = ttk.Labelframe(pai, text=" Tese ", padding=18, bootstyle="secondary")
-        cartao.pack(fill=X, pady=(0, 14))
+        # mesmos padding/espaçamentos da aba All-in-one: o formulário é o
+        # mesmo, e alternar entre as abas não pode fazer os campos "pularem"
+        cartao = ttk.Labelframe(pai, text=" 1. Tese ", padding=12)
+        cartao.pack(fill=X, pady=(0, 10))
         cartao.columnconfigure(1, weight=1)
 
-        ttk.Label(cartao, text="Número do tópico", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky=W, padx=(0, 10), pady=(0, 10))
-        ttk.Entry(cartao, textvariable=self.var_topico_capas, width=8).grid(row=0, column=1, sticky=W, pady=(0, 10))
-        ttk.Label(cartao, text="Título da tese", font=("Segoe UI", 9, "bold")).grid(row=1, column=0, sticky=W, padx=(0, 10))
+        ttk.Label(cartao, text="Número do tópico", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, sticky=W, padx=(0, 10), pady=(0, 6))
+        ttk.Entry(cartao, textvariable=self.var_topico_capas, width=8).grid(row=0, column=1, sticky=W, pady=(0, 6))
+        ttk.Label(cartao, text="Título da tese", font=("Segoe UI", 10, "bold")).grid(row=1, column=0, sticky=W, padx=(0, 10))
         entry_titulo_capas = ttk.Entry(cartao, textvariable=self.var_titulo_capas)
         entry_titulo_capas.grid(row=1, column=1, sticky=EW)
         _mostrar_inicio_ao_colar(entry_titulo_capas)
 
-        tabela_card = ttk.Labelframe(pai, text=" Tabela de segurados ", padding=18, bootstyle="secondary")
-        tabela_card.pack(fill=X, pady=(0, 14))
+        tabela_card = ttk.Labelframe(pai, text=" 2. Tabela de segurados ", padding=12)
+        tabela_card.pack(fill=X, pady=(0, 10))
         tabela_card.columnconfigure(0, weight=1)
 
         linha_radios = ttk.Frame(tabela_card)
-        linha_radios.grid(row=1, column=0, sticky=W, pady=(0, 10))
+        linha_radios.grid(row=1, column=0, sticky=W, pady=(0, 6))
         ttk.Radiobutton(
             linha_radios, text="Importar de um .docx", variable=self.var_origem_tabela_capas, value="docx",
             command=self._alternar_origem_tabela_capas, bootstyle="secondary",
@@ -1971,64 +2091,68 @@ class AplicativoDivisorPDF:
         ttk.Entry(self.frame_tabela_docx_capas, textvariable=self.var_docx_tabela_capas).grid(row=0, column=1, sticky=EW)
         ttk.Label(
             self.frame_tabela_docx_capas,
-            text="⚠️ Se a tabela ocupar mais de uma página, desative a opção \"Repetir "
-                 "linhas de cabeçalho\" — caso contrário, o programa não conseguirá ler "
-                 "os dados corretamente.",
-            bootstyle="warning", font=("Segoe UI", 8, "bold"), wraplength=760, justify=LEFT,
-        ).grid(row=1, column=0, columnspan=2, sticky=W, pady=(8, 0))
+            text="⚠ Tabela com mais de uma página: desative a função \"Repetir linhas de cabeçalho\" no Word.",
+            style="Aviso.TLabel", wraplength=760, justify=LEFT,
+        ).grid(row=1, column=0, columnspan=2, sticky=W, pady=(6, 0))
 
         self.colar_capas = CaixaColarTabela(tabela_card, self.root, ao_capturar=self._atualizar_labels_larguras)
         self.colar_capas.frame.grid(row=2, column=0, sticky=EW)
         ttk.Button(
             self.colar_capas.rodape, text="⚙  Padronizar tabela...",
             command=lambda: self._abrir_padronizar_tabela(self.colar_capas, self.var_titulo_capas),
-            bootstyle="primary-outline",
+            bootstyle="light",
         ).pack(side=LEFT)
         self.label_larguras_capas = ttk.Label(
-            self.colar_capas.rodape, text="", bootstyle="secondary", font=("Segoe UI", 8),
+            self.colar_capas.rodape, text="", style="Ajuda.TLabel",
         )
         self.label_larguras_capas.pack(side=LEFT, padx=(10, 0))
 
         linha_base = ttk.Frame(tabela_card)
-        linha_base.grid(row=0, column=0, sticky=W, pady=(0, 12))
+        linha_base.grid(row=0, column=0, sticky=W, pady=(0, 8))
         ttk.Button(
             linha_base, text="📥  Baixar documento base das tabelas",
-            command=self._baixar_base_tabelas, bootstyle="primary-outline",
+            command=self._baixar_base_tabelas, bootstyle="light",
         ).pack(side=LEFT)
         ttk.Label(
             linha_base, text="Documento em branco com as margens corretas — monte a sua tabela nele antes de importar.",
-            bootstyle="secondary", font=("Segoe UI", 8),
+            style="Ajuda.TLabel",
         ).pack(side=LEFT, padx=(10, 0))
 
-        saida_card = ttk.Labelframe(pai, text=" Pasta da tese ", padding=18, bootstyle="secondary")
+        saida_card = ttk.Labelframe(pai, text=" 3. Pastas ", padding=12)
         saida_card.pack(fill=X)
         saida_card.columnconfigure(0, weight=1)
+        ttk.Label(saida_card, text="Pasta da tese", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, sticky=W)
+        ttk.Label(
+            saida_card, text="Onde as capas serão salvas — preenchida sozinha ao importar o .docx, ou escolha manualmente.",
+            style="Ajuda.TLabel",
+        ).grid(row=1, column=0, sticky=W, pady=(0, 4))
         linha_saida = ttk.Frame(saida_card)
-        linha_saida.grid(row=0, column=0, sticky=EW)
+        linha_saida.grid(row=2, column=0, sticky=EW)
         linha_saida.columnconfigure(0, weight=1)
         ttk.Entry(linha_saida, textvariable=self.var_saida_capas).grid(row=0, column=0, sticky=EW, padx=(0, 8))
-        ttk.Button(linha_saida, text="Procurar...", command=self._escolher_saida_capas, bootstyle="primary-outline").grid(row=0, column=1)
+        ttk.Button(linha_saida, text="Procurar...", command=self._escolher_saida_capas, bootstyle="light").grid(row=0, column=1)
         ttk.Checkbutton(
-            saida_card, text="Gerar também um arquivo Word (.docx)", variable=self.var_gerar_docx_capas,
+            saida_card, text="Gerar também um arquivo Word (.docx) das capas", variable=self.var_gerar_docx_capas,
             bootstyle="secondary",
-        ).grid(row=1, column=0, sticky=W, pady=(10, 0))
+        ).grid(row=3, column=0, sticky=W, pady=(10, 0))
 
         self._alternar_origem_tabela_capas()
 
     def _montar_acoes_capas(self, pai):
         acoes = ttk.Frame(pai)
-        acoes.pack(fill=X, pady=(14, 14))
-        self.botao_abrir_pasta_capas = ttk.Button(
-            acoes, text="📂  Abrir pasta da tese", command=self._abrir_pasta_capas,
-            bootstyle="primary-outline", state=DISABLED,
+        acoes.pack(fill=X, pady=(10, 10))
+        botao_limpar = ttk.Button(acoes, text="🧹  Limpar", command=self._limpar_capas, bootstyle="danger-outline")
+        botao_limpar.pack(side=LEFT)
+        self.botao_abrir_pasta_capas = BotaoResultado(
+            acoes, dict(side=LEFT, padx=(0, 10), before=botao_limpar),
+            text="📂  Abrir pasta da tese", command=self._abrir_pasta_capas,
+            bootstyle="primary", state=DISABLED,
         )
-        self.botao_abrir_pasta_capas.pack(side=LEFT)
-        self.botao_abrir_pdf_capas = ttk.Button(
-            acoes, text="👁  Abrir PDF gerado", command=self._abrir_pdf_capas,
-            bootstyle="primary-outline", state=DISABLED,
+        self.botao_abrir_pdf_capas = BotaoResultado(
+            acoes, dict(side=LEFT, padx=(0, 10), before=botao_limpar),
+            text="👁  Abrir PDF gerado", command=self._abrir_pdf_capas,
+            bootstyle="primary", state=DISABLED,
         )
-        self.botao_abrir_pdf_capas.pack(side=LEFT, padx=(10, 0))
-        ttk.Button(acoes, text="🧹  Limpar", command=self._limpar_capas, bootstyle="danger-outline").pack(side=LEFT, padx=(10, 0))
         self.botao_gerar_capas = ttk.Button(
             acoes, text="📑  Gerar capas", command=self._gerar_capas, bootstyle="secondary", width=20,
         )
@@ -2237,9 +2361,9 @@ class AplicativoDivisorPDF:
             _atualizar_spins()
             renderizar()
 
-        ttk.Button(rapidos, text="📐  Ajustar ao conteúdo", bootstyle="primary-outline",
+        ttk.Button(rapidos, text="📐  Ajustar ao conteúdo", bootstyle="light",
                    command=ajustar_conteudo).pack(side=LEFT)
-        ttk.Button(rapidos, text="▤  Distribuir igualmente", bootstyle="primary-outline",
+        ttk.Button(rapidos, text="▤  Distribuir igualmente", bootstyle="light",
                    command=distribuir_igual).pack(side=LEFT, padx=(8, 0))
         botao_previa = ttk.Button(rapidos, text="🔄  Atualizar prévia", bootstyle="secondary",
                                   command=lambda: renderizar())
@@ -2334,7 +2458,7 @@ class AplicativoDivisorPDF:
 
         ttk.Button(rodape, text="🧹  Restaurar padrão", command=restaurar, bootstyle="danger-outline").pack(side=LEFT)
         ttk.Button(rodape, text="Aplicar", command=aplicar, bootstyle="secondary", width=14).pack(side=RIGHT)
-        ttk.Button(rodape, text="Cancelar", command=janela.destroy, bootstyle="primary-outline", width=14).pack(side=RIGHT, padx=(0, 10))
+        ttk.Button(rodape, text="Cancelar", command=janela.destroy, bootstyle="light", width=14).pack(side=RIGHT, padx=(0, 10))
 
         _atualizar_spins()
         janela.update_idletasks()

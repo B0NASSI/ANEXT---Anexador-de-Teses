@@ -1,0 +1,3 @@
+- Interface totalmente redesenhada: as abas no topo deram lugar a uma
+  barra lateral de navegação, e cada etapa (Tese, Tabela, Pastas etc.)
+  agora fica num card com borda fina, mais fácil de acompanhar.
