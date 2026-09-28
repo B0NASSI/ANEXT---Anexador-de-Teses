@@ -30,7 +30,7 @@ import log_setup
 from limites_caminho import truncar_para_caminho
 import tabela
 import tema
-from gerar import gerar_pdf_capas, sanitizar_nome_arquivo
+from gerar import gerar_pdf_capa_titulo, gerar_pdf_capas, sanitizar_nome_arquivo
 from pdf import ConversorPDF, ConversorPDFIndisponivel
 from separar_capas import calcular_destinos, pastas_segurados_em_ordem, separar_capas
 
@@ -240,7 +240,6 @@ MODELO_CAPAS = Path(_caminho_recurso("modelo")) / "modelo.docx"
 log_setup.configurar_logging("anext.log", _pasta_executavel())
 logger = logging.getLogger(__name__)
 
-SAIDA_PADRAO_CAPAS = _pasta_executavel() / "output"
 BASE_TABELAS = Path(_caminho_recurso("modelo")) / "BASE TABELAS.docx"
 CONFIG_CAPAS = _pasta_executavel() / "anext_config.json"
 
@@ -474,7 +473,7 @@ class CaixaColarTabela:
         self.frame = ttk.Frame(pai)
         self.frame.columnconfigure(0, weight=1)
         self._label_ajuda = ttk.Label(
-            self.frame, text=TEXTO_AJUDA_COLAR, foreground="#666666",
+            self.frame, text=TEXTO_AJUDA_COLAR, foreground=tema.COR_AJUDA,
             font=("Segoe UI", 8), wraplength=860,
         )
         self._label_ajuda.pack(anchor=W, pady=(0, 6))
@@ -699,12 +698,26 @@ class AplicativoDivisorPDF:
         self.var_saida_capas = tk.StringVar()
         self._saida_capas_manual = False
         self.var_gerar_docx_capas = tk.BooleanVar(value=False)
+        # None = gera tudo (padrão); senão dict {"capa": bool, "tabela": bool,
+        # "segurados": set[int], "total_segurados": int} — ver
+        # _abrir_selecionar_paginas_capas. "total_segurados" serve só pra
+        # detectar quando a tabela mudou depois da seleção (aí ela não faz
+        # mais sentido e é descartada em _gerar_capas)
+        self._selecao_paginas_capas: dict | None = None
         self._ultimo_pdf_capas: Path | None = None
         self._config = _carregar_config()
 
         self._instalar_menu_contexto(root)
         root.bind("<Control-l>", lambda _: self._abrir_log())
         root.bind("<Control-L>", lambda _: self._abrir_log())
+
+        # a barra lateral tem largura fixa e precisa ser empacotada ANTES do
+        # conteúdo (que usa expand=True): o gerenciador `pack` reserva espaço
+        # na ordem das chamadas — empacotar o conteúdo primeiro fazia a
+        # sidebar inteira sumir (largura 0) quando a janela é redimensionada
+        # pra perto do mínimo, porque o conteúdo (primeiro a pedir espaço)
+        # ficava com tudo e não sobrava nada pra ela
+        self._montar_sidebar(root)
 
         conteudo = ttk.Frame(root)
         conteudo.pack(side=RIGHT, fill=BOTH, expand=True)
@@ -720,7 +733,6 @@ class AplicativoDivisorPDF:
         for aba, (titulo, _icone, descricao) in zip((aba_allin, aba_capas, aba_dividir, aba_juntar), PAGINAS):
             self.notebook.add(aba)
             self._montar_titulo_pagina(aba, titulo, descricao)
-        self._montar_sidebar(root)
 
         aba_allin.columnconfigure(0, weight=1)
         self._montar_card_allin(aba_allin)
@@ -744,6 +756,8 @@ class AplicativoDivisorPDF:
         self._montar_acoes_juntar(aba_juntar)
         self._montar_progresso_juntar(aba_juntar)
         self._montar_resultado_juntar(aba_juntar)
+
+        self._ir_para(0)
 
     def _instalar_menu_contexto(self, root) -> None:
         """Menu de botão direito (Recortar/Copiar/Colar/Selecionar tudo) em
@@ -846,8 +860,8 @@ class AplicativoDivisorPDF:
         self._criar_link_sidebar(rodape, "ⓘ", "Notas de atualização", self._abrir_notas_atualizacao)
         self._criar_link_sidebar(rodape, "❔", "Manual rápido", self._abrir_manual)
         ttk.Label(rodape, text=f"Versão {_ler_versao_local()}", style="SidebarSuave.TLabel").pack(anchor=W, padx=20, pady=(12, 0))
-
-        self._ir_para(0)
+        # a seleção inicial (self._ir_para(0)) só acontece depois que as 4
+        # páginas existirem — ver fim do __init__
 
     def _criar_link_sidebar(self, pai, icone: str, texto: str, comando) -> None:
         """Link do rodapé da barra lateral (ícone + texto). Usa dois rótulos
@@ -2066,9 +2080,10 @@ class AplicativoDivisorPDF:
         tabela_card = ttk.Labelframe(pai, text=" 2. Tabela de segurados ", padding=12)
         tabela_card.pack(fill=X, pady=(0, 10))
         tabela_card.columnconfigure(0, weight=1)
+        conteudo = tabela_card
 
-        linha_radios = ttk.Frame(tabela_card)
-        linha_radios.grid(row=1, column=0, sticky=W, pady=(0, 6))
+        linha_radios = ttk.Frame(conteudo)
+        linha_radios.grid(row=1, column=0, sticky=EW, pady=(0, 6))
         ttk.Radiobutton(
             linha_radios, text="Importar de um .docx", variable=self.var_origem_tabela_capas, value="docx",
             command=self._alternar_origem_tabela_capas, bootstyle="secondary",
@@ -2078,7 +2093,7 @@ class AplicativoDivisorPDF:
             command=self._alternar_origem_tabela_capas, bootstyle="secondary",
         ).pack(side=LEFT)
 
-        self.frame_tabela_docx_capas = ttk.Frame(tabela_card)
+        self.frame_tabela_docx_capas = ttk.Frame(conteudo)
         self.frame_tabela_docx_capas.grid(row=2, column=0, sticky=EW)
         self.frame_tabela_docx_capas.columnconfigure(1, weight=1)
         # botão à ESQUERDA (perto do rótulo "Importar de um .docx" acima) e
@@ -2095,7 +2110,7 @@ class AplicativoDivisorPDF:
             style="Aviso.TLabel", wraplength=760, justify=LEFT,
         ).grid(row=1, column=0, columnspan=2, sticky=W, pady=(6, 0))
 
-        self.colar_capas = CaixaColarTabela(tabela_card, self.root, ao_capturar=self._atualizar_labels_larguras)
+        self.colar_capas = CaixaColarTabela(conteudo, self.root, ao_capturar=self._atualizar_labels_larguras)
         self.colar_capas.frame.grid(row=2, column=0, sticky=EW)
         ttk.Button(
             self.colar_capas.rodape, text="⚙  Padronizar tabela...",
@@ -2107,7 +2122,20 @@ class AplicativoDivisorPDF:
         )
         self.label_larguras_capas.pack(side=LEFT, padx=(10, 0))
 
-        linha_base = ttk.Frame(tabela_card)
+        linha_selecionar_paginas = ttk.Frame(conteudo)
+        linha_selecionar_paginas.grid(row=3, column=0, sticky=W, pady=(12, 0))
+        self.botao_selecionar_paginas_capas = ttk.Button(
+            linha_selecionar_paginas, text="☑  Selecionar páginas...", command=self._abrir_selecionar_paginas_capas,
+            bootstyle="primary",
+        )
+        self.botao_selecionar_paginas_capas.pack(side=LEFT)
+        ttk.Label(
+            linha_selecionar_paginas,
+            text="Escolha quais páginas entram no PDF — útil pra corrigir só uma parte sem gerar tudo de novo.",
+            style="Ajuda.TLabel",
+        ).pack(side=LEFT, padx=(10, 0))
+
+        linha_base = ttk.Frame(conteudo)
         linha_base.grid(row=0, column=0, sticky=W, pady=(0, 8))
         ttk.Button(
             linha_base, text="📥  Baixar documento base das tabelas",
@@ -2204,6 +2232,21 @@ class AplicativoDivisorPDF:
         else:
             self.frame_tabela_docx_capas.grid_remove()
             self.colar_capas.frame.grid()
+        self._invalidar_selecao_paginas_capas()
+
+    def _invalidar_selecao_paginas_capas(self) -> None:
+        self._selecao_paginas_capas = None
+        if hasattr(self, "botao_selecionar_paginas_capas"):
+            self._atualizar_texto_selecionar_paginas_capas()
+
+    def _atualizar_texto_selecionar_paginas_capas(self) -> None:
+        if self._selecao_paginas_capas is None:
+            self.botao_selecionar_paginas_capas.configure(text="☑  Selecionar páginas...")
+            return
+        s = self._selecao_paginas_capas
+        n = int(s["capa"]) + int(s["tabela"]) + len(s["segurados"])
+        self.botao_selecionar_paginas_capas.configure(text=f"☑  Selecionar páginas... ({n} selecionada(s))")
+
 
     # ── Padronização de larguras da tabela (modo colar) ──────────────────
 
@@ -2240,6 +2283,9 @@ class AplicativoDivisorPDF:
                 label.configure(text=f"✔ Larguras personalizadas ativas ({n_colunas} colunas)")
             else:
                 label.configure(text="")
+        # tabela pode ter mudado (pasta de nomes/linhas diferente) — uma
+        # seleção de páginas feita em cima da tabela anterior não vale mais
+        self._invalidar_selecao_paginas_capas()
 
     def _abrir_padronizar_tabela(self, caixa: CaixaColarTabela, var_titulo: tk.StringVar):
         from tkinter import font as tkfont
@@ -2507,6 +2553,7 @@ class AplicativoDivisorPDF:
             # a não ser que o usuário já tenha escolhido uma manualmente
             if not self._saida_capas_manual:
                 self.var_saida_capas.set(str(Path(caminho).parent))
+            self._invalidar_selecao_paginas_capas()
 
     def _escolher_saida_capas(self):
         caminho = filedialog.askdirectory(title="Selecionar pasta da tese", parent=self.root)
@@ -2552,6 +2599,158 @@ class AplicativoDivisorPDF:
             return tabela.extrair_de_docx(caminho)
         return self.colar_capas.obter_tabela()
 
+    def _abrir_selecionar_paginas_capas(self):
+        """Deixa escolher quais páginas entram no PDF final — útil pra
+        corrigir só uma parte (ex.: os 2 últimos segurados) sem gerar a
+        tese inteira de novo. Sem tabela carregada, só a capa do título
+        pode ser selecionada (não depende de segurados nenhum)."""
+        try:
+            tabela_segurados, _ = self._obter_tabela_capas()
+        except ValueError:
+            tabela_segurados = None
+
+        selecao_atual = self._selecao_paginas_capas
+        total_segurados = len(tabela_segurados.grupos) if tabela_segurados is not None else 0
+        # seleção de uma tabela diferente (nº de segurados mudou) não serve
+        # mais de referência pros checkboxes — melhor começar com tudo
+        # marcado do que arriscar herdar uma marcação que não bate mais
+        if selecao_atual is not None and selecao_atual["total_segurados"] != total_segurados:
+            selecao_atual = None
+
+        janela = ttk.Toplevel(self.root)
+        janela.title("Selecionar páginas a gerar")
+        janela.resizable(False, False)
+        janela.transient(self.root)
+        try:
+            janela.iconbitmap(_caminho_recurso("assets/pdf.ico"))
+        except tk.TclError:
+            pass
+
+        ttk.Label(janela, text="Selecionar páginas a gerar", font=("Segoe UI", 13, "bold")).pack(
+            anchor=W, padx=24, pady=(20, 4),
+        )
+        ttk.Label(
+            janela,
+            text="Desmarque o que já está pronto — útil pra corrigir só uma parte sem gerar a tese inteira de novo.",
+            style="Descricao.TLabel", wraplength=420,
+        ).pack(anchor=W, padx=24, pady=(0, 14))
+
+        moldura = ttk.Frame(janela, padding=(24, 0))
+        moldura.pack(fill=BOTH, expand=True)
+
+        var_capa = tk.BooleanVar(value=True if selecao_atual is None else selecao_atual["capa"])
+        ttk.Checkbutton(moldura, text="Capa do título", variable=var_capa, bootstyle="secondary").pack(
+            anchor=W, pady=(0, 4),
+        )
+
+        vars_segurados: list[tk.BooleanVar] = []
+        var_tabela = tk.BooleanVar(value=False)
+
+        if tabela_segurados is not None and tabela_segurados.grupos:
+            var_tabela.set(True if selecao_atual is None else selecao_atual["tabela"])
+            ttk.Checkbutton(moldura, text="Tabela completa", variable=var_tabela, bootstyle="secondary").pack(
+                anchor=W, pady=(0, 10),
+            )
+
+            linha_marcar = ttk.Frame(moldura)
+            linha_marcar.pack(anchor=W, pady=(0, 6))
+
+            def _marcar_todos(valor: bool) -> None:
+                var_tabela.set(valor)
+                for v in vars_segurados:
+                    v.set(valor)
+
+            ttk.Button(
+                linha_marcar, text="Marcar todos", command=lambda: _marcar_todos(True),
+                bootstyle="light", width=16,
+            ).pack(side=LEFT, padx=(0, 8))
+            ttk.Button(
+                linha_marcar, text="Desmarcar todos", command=lambda: _marcar_todos(False),
+                bootstyle="light", width=16,
+            ).pack(side=LEFT)
+
+            indices_marcados = (
+                None if selecao_atual is None else selecao_atual["segurados"]
+            )  # None = todos marcados
+
+            lista_frame = ttk.Frame(moldura)
+            lista_frame.pack(fill=BOTH, expand=True, pady=(6, 0))
+            altura_lista = min(320, 24 * len(tabela_segurados.grupos) + 8)
+            canvas = tk.Canvas(
+                lista_frame, borderwidth=0, highlightthickness=0, width=380, height=altura_lista,
+                background=tema.COR_FUNDO,
+            )
+            scroll = ttk.Scrollbar(lista_frame, orient="vertical", command=canvas.yview)
+            canvas.configure(yscrollcommand=scroll.set)
+            canvas.pack(side=LEFT, fill=BOTH, expand=True)
+            scroll.pack(side=LEFT, fill=Y)
+
+            interno = ttk.Frame(canvas)
+            canvas.create_window((0, 0), window=interno, anchor="nw")
+
+            def _ao_redimensionar_interno(_evt=None):
+                canvas.configure(scrollregion=canvas.bbox("all"))
+
+            interno.bind("<Configure>", _ao_redimensionar_interno)
+
+            def _rolar(event):
+                canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+            for i, (nome, _linhas) in enumerate(tabela_segurados.grupos):
+                marcado = True if indices_marcados is None else (i in indices_marcados)
+                v = tk.BooleanVar(value=marcado)
+                chk = ttk.Checkbutton(interno, text=f"{i + 1}. {nome}", variable=v, bootstyle="secondary")
+                chk.pack(anchor=W, pady=1)
+                chk.bind("<MouseWheel>", _rolar)
+                vars_segurados.append(v)
+            canvas.bind("<MouseWheel>", _rolar)
+        else:
+            ttk.Label(
+                moldura,
+                text="⚠ Nenhuma tabela de segurados carregada — só é possível gerar a capa do título.",
+                style="Aviso.TLabel", wraplength=420,
+            ).pack(anchor=W, pady=(4, 0))
+
+        resultado = {"confirmado": False}
+        rodape = ttk.Frame(janela, padding=24)
+        rodape.pack(fill=X)
+
+        def confirmar():
+            resultado["confirmado"] = True
+            janela.destroy()
+
+        botao_ok = ttk.Button(rodape, text="OK", command=confirmar, bootstyle="secondary", width=14)
+        botao_ok.pack(side=RIGHT)
+        ttk.Button(rodape, text="Cancelar", command=janela.destroy, bootstyle="light", width=14).pack(
+            side=RIGHT, padx=(0, 10),
+        )
+        botao_ok.focus_set()
+
+        # largura fixa (não calculada por winfo_reqwidth): com a lista de
+        # segurados rolável (largura fixa dentro de um Canvas) ao lado da
+        # linha "Marcar todos"/"Desmarcar todos", o cálculo automático de
+        # largura ficava por vezes menor que o necessário e cortava os
+        # botões — mais seguro fixar uma largura confortável pra tudo
+        janela.update_idletasks()
+        largura, altura = 480, janela.winfo_reqheight()
+        janela.geometry(f"{largura}x{altura}")
+        _posicionar_sobre_janela(self.root, janela, largura, altura)
+        janela.deiconify()
+        janela.lift()
+        janela.grab_set()
+        janela.wait_window()
+
+        if not resultado["confirmado"]:
+            return
+
+        self._selecao_paginas_capas = {
+            "capa": var_capa.get(),
+            "tabela": var_tabela.get(),
+            "segurados": {i for i, v in enumerate(vars_segurados) if v.get()},
+            "total_segurados": total_segurados,
+        }
+        self._atualizar_texto_selecionar_paginas_capas()
+
     def _gerar_capas(self):
         if not MODELO_CAPAS.is_file():
             messagebox.showerror(
@@ -2573,13 +2772,36 @@ class AplicativoDivisorPDF:
         titulo = _normalizar_travessao(_normalizar_espacos(titulo))
 
         saida_texto = self.var_saida_capas.get().strip()
-        pasta_saida = Path(saida_texto) if saida_texto else SAIDA_PADRAO_CAPAS
-
-        try:
-            tabela_segurados, tabela_referencia = self._obter_tabela_capas()
-        except ValueError as exc:
-            messagebox.showwarning("Tabela de segurados", str(exc), parent=self.root)
+        if not saida_texto:
+            messagebox.showwarning("Campo obrigatório", "Selecione a pasta da tese.", parent=self.root)
             return
+        pasta_saida = Path(saida_texto)
+
+        selecao = self._selecao_paginas_capas
+        if selecao is not None and not selecao["capa"] and not selecao["tabela"] and not selecao["segurados"]:
+            messagebox.showwarning(
+                "Nenhuma página selecionada",
+                "Marque ao menos uma página em \"Selecionar páginas...\" antes de gerar.",
+                parent=self.root,
+            )
+            return
+
+        # seleção só marcando a capa do título dispensa a tabela por
+        # completo — nem tenta importar/colar nada nesse caso
+        somente_capa = selecao is not None and selecao["capa"] and not selecao["tabela"] and not selecao["segurados"]
+
+        tabela_segurados = tabela_referencia = larguras_colunas = None
+        if not somente_capa:
+            try:
+                tabela_segurados, tabela_referencia = self._obter_tabela_capas()
+            except ValueError as exc:
+                messagebox.showwarning("Tabela de segurados", str(exc), parent=self.root)
+                return
+            # seleção feita numa tabela diferente (nº de segurados mudou)
+            # não faz mais sentido — mais seguro gerar tudo do que arriscar
+            # pular alguém sem querer
+            if selecao is not None and selecao["total_segurados"] != len(tabela_segurados.grupos):
+                selecao = None
 
         # avisa antes de sobrescrever um PDF/Word de capas já gerado
         # (sempre salvo como "Capas Geradas", igual à aba All-in-one)
@@ -2600,42 +2822,63 @@ class AplicativoDivisorPDF:
             ):
                 return
 
-        n_segurados = len(tabela_segurados.grupos)
-        n_beneficios = len(tabela_segurados.linhas)
+        incluir_capa = True if selecao is None else selecao["capa"]
+        incluir_tabela = True if selecao is None else selecao["tabela"]
+        indices_segurados = None if selecao is None else selecao["segurados"]
 
         self._limpar_log_capas()
-        self._log_capas(f"Tabela lida: {n_segurados} segurado(s), {n_beneficios} linha(s) de benefício.", "titulo")
-        if tabela_referencia is not None:
-            self._log_capas("Estilo da tabela original será replicado (mesclagens, cores, bordas e fontes).")
+        if somente_capa:
+            self._log_capas("Gerando apenas a capa do título (sem tabela de segurados).", "titulo")
         else:
-            self._log_capas("Texto colado não tem formatação — será aplicado o estilo padrão da capa.")
+            n_segurados = len(tabela_segurados.grupos)
+            n_beneficios = len(tabela_segurados.linhas)
+            self._log_capas(f"Tabela lida: {n_segurados} segurado(s), {n_beneficios} linha(s) de benefício.", "titulo")
+            if tabela_referencia is not None:
+                self._log_capas("Estilo da tabela original será replicado (mesclagens, cores, bordas e fontes).")
+            else:
+                self._log_capas("Texto colado não tem formatação — será aplicado o estilo padrão da capa.")
 
-        larguras_colunas = None
-        if self.var_origem_tabela_capas.get() == "colar":
-            larguras_colunas = self._larguras_para(len(tabela_segurados.cabecalhos))
-            if larguras_colunas:
-                self._log_capas("Larguras de coluna personalizadas serão aplicadas.")
+            if selecao is not None:
+                n_incluidos = n_segurados if indices_segurados is None else len(indices_segurados)
+                partes = []
+                if not incluir_capa:
+                    partes.append("sem a capa do título")
+                if not incluir_tabela:
+                    partes.append("sem a tabela completa")
+                if n_incluidos < n_segurados:
+                    partes.append(f"{n_incluidos} de {n_segurados} segurado(s)")
+                if partes:
+                    self._log_capas("Seleção personalizada: " + "; ".join(partes) + ".")
+
+            if self.var_origem_tabela_capas.get() == "colar":
+                larguras_colunas = self._larguras_para(len(tabela_segurados.cabecalhos))
+                if larguras_colunas:
+                    self._log_capas("Larguras de coluna personalizadas serão aplicadas.")
 
         self.colar_capas.compactar()
         self.botao_gerar_capas.config(state=DISABLED)
         self.botao_abrir_pasta_capas.config(state=DISABLED)
         self.botao_abrir_pdf_capas.config(state=DISABLED)
-        self.barra_progresso_capas.configure(value=0, maximum=2 + n_segurados)
+        total_etapas = 1 if somente_capa else 2 + len(tabela_segurados.grupos)
+        self.barra_progresso_capas.configure(value=0, maximum=total_etapas)
         self.label_progresso_capas.configure(text="Iniciando geração...")
         self.frame_progresso_capas.pack(fill=X, pady=(0, 14), before=self.moldura_resultado_capas)
 
         threading.Thread(
             target=self._gerar_capas_worker,
             args=(titulo, topico, tabela_segurados, tabela_referencia, pasta_saida,
-                  self.var_gerar_docx_capas.get(), larguras_colunas),
+                  self.var_gerar_docx_capas.get(), larguras_colunas, somente_capa,
+                  incluir_capa, incluir_tabela, indices_segurados),
             daemon=True,
         ).start()
 
     def _gerar_capas_worker(self, titulo, topico, tabela_segurados, tabela_referencia, pasta_saida, gerar_docx,
-                            larguras_colunas=None):
+                            larguras_colunas=None, somente_capa=False,
+                            incluir_capa=True, incluir_tabela=True, indices_segurados=None):
         logger.info(
-            "Iniciando geração de capas (pasta=%s, tópico=%s, %d segurado(s))",
-            pasta_saida, topico, len(tabela_segurados.grupos),
+            "Iniciando geração de capas (pasta=%s, tópico=%s, %s)",
+            pasta_saida, topico,
+            "apenas capa do título" if somente_capa else f"{len(tabela_segurados.grupos)} segurado(s)",
         )
         pythoncom.CoInitialize()
         try:
@@ -2649,12 +2892,20 @@ class AplicativoDivisorPDF:
             try:
                 # sempre salvo como "Capas Geradas" (mesmo padrão da aba
                 # All-in-one), no lugar do título da tese
-                caminho_pdf, caminho_docx = gerar_pdf_capas(
-                    MODELO_CAPAS, titulo, tabela_segurados, tabela_referencia, pasta_saida,
-                    conversor, topico=topico, gerar_docx=gerar_docx,
-                    callback_progresso=lambda e, t, r: self.root.after(0, self._capas_progresso, e, t, r),
-                    larguras_colunas=larguras_colunas,
-                )
+                if somente_capa:
+                    caminho_pdf, caminho_docx = gerar_pdf_capa_titulo(
+                        MODELO_CAPAS, titulo, pasta_saida, conversor, topico=topico, gerar_docx=gerar_docx,
+                    )
+                    self.root.after(0, self._capas_progresso, 1, 1, "Capa do título")
+                else:
+                    caminho_pdf, caminho_docx = gerar_pdf_capas(
+                        MODELO_CAPAS, titulo, tabela_segurados, tabela_referencia, pasta_saida,
+                        conversor, topico=topico, gerar_docx=gerar_docx,
+                        callback_progresso=lambda e, t, r: self.root.after(0, self._capas_progresso, e, t, r),
+                        larguras_colunas=larguras_colunas,
+                        incluir_capa=incluir_capa, incluir_tabela_completa=incluir_tabela,
+                        indices_segurados=indices_segurados,
+                    )
             except Exception as exc:
                 logger.exception("Falha ao gerar capas (pasta=%s, tópico=%s)", pasta_saida, topico)
                 self.root.after(0, self._capas_falhou, _mensagem_erro_amigavel(exc))
@@ -2665,7 +2916,7 @@ class AplicativoDivisorPDF:
             logger.info(
                 "Geração de capas concluída (pasta=%s, tópico=%s): pdf=%s, docx=%s | segurados: %s",
                 pasta_saida, topico, caminho_pdf, caminho_docx,
-                [nome for nome, _ in tabela_segurados.grupos],
+                "—" if somente_capa else [nome for nome, _ in tabela_segurados.grupos],
             )
             self.root.after(0, self._capas_concluiu, caminho_pdf, caminho_docx)
         finally:

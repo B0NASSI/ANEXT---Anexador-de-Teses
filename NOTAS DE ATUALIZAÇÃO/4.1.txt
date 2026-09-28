@@ -1,0 +1,6 @@
+- Nova opção "Selecionar páginas..." em Gerar capas: escolha quais
+  páginas entram no PDF (capa do título, tabela completa e cada
+  segurado individualmente) — útil pra corrigir só uma parte da tese
+  sem precisar gerar tudo de novo.
+- Corrigida a barra lateral sumindo quando a janela é redimensionada
+  bem estreita.

@@ -68,6 +68,9 @@ def gerar_pdf_capas(
     callback_progresso: CallbackProgresso | None = None,
     larguras_colunas: list[float] | None = None,
     cancelar=None,
+    incluir_capa: bool = True,
+    incluir_tabela_completa: bool = True,
+    indices_segurados: set[int] | None = None,
 ) -> tuple[Path, Path | None]:
     if not tabela.grupos:
         raise ValueError("Nenhum segurado foi identificado na tabela informada.")
@@ -78,9 +81,15 @@ def gerar_pdf_capas(
     # única linha - uma página individual repetiria a mesma informação, então
     # ela é pulada (a tabela completa cumpre esse papel sozinha).
     gerar_paginas_individuais = len(tabela.grupos) > 1
+    # None = todos os segurados (comportamento padrão); ver
+    # app.py:_abrir_selecionar_paginas_capas para a seleção parcial
+    indices_a_gerar = range(len(tabela.grupos)) if indices_segurados is None else sorted(indices_segurados)
 
     pasta_temp = Path(tempfile.mkdtemp(prefix="capas_fap_"))
-    total_etapas = 2 + (len(tabela.grupos) if gerar_paginas_individuais else 0)
+    total_etapas = (
+        int(incluir_capa) + int(incluir_tabela_completa)
+        + (len(indices_a_gerar) if gerar_paginas_individuais else 0)
+    )
     etapa = 0
     pdf_final = fitz.open()
     documentos = []
@@ -99,30 +108,33 @@ def gerar_pdf_capas(
 
             _com_repeticao(_anexar)
 
-        doc = montar_capa(caminho_modelo, titulo, topico)
-        _converter_e_anexar(doc, "00_capa")
-        etapa += 1
-        if callback_progresso:
-            callback_progresso(etapa, total_etapas, "Capa geral")
+        if incluir_capa:
+            doc = montar_capa(caminho_modelo, titulo, topico)
+            _converter_e_anexar(doc, "00_capa")
+            etapa += 1
+            if callback_progresso:
+                callback_progresso(etapa, total_etapas, "Capa geral")
 
-        doc = montar_tabela_completa(
-            caminho_modelo, titulo, tabela.cabecalhos, tabela.linhas, tabela.indice_nome, tabela_referencia,
-            larguras_colunas,
-        )
-        _converter_e_anexar(doc, "01_tabela_completa")
-        etapa += 1
-        if callback_progresso:
-            callback_progresso(etapa, total_etapas, "Tabela completa")
+        if incluir_tabela_completa:
+            doc = montar_tabela_completa(
+                caminho_modelo, titulo, tabela.cabecalhos, tabela.linhas, tabela.indice_nome, tabela_referencia,
+                larguras_colunas,
+            )
+            _converter_e_anexar(doc, "01_tabela_completa")
+            etapa += 1
+            if callback_progresso:
+                callback_progresso(etapa, total_etapas, "Tabela completa")
 
         if gerar_paginas_individuais:
-            for i, (nome, linhas_segurado) in enumerate(tabela.grupos, start=1):
+            for i in indices_a_gerar:
                 if cancelar is not None and cancelar.is_set():
                     raise InterruptedError("Cancelado pelo usuário.")
+                nome, linhas_segurado = tabela.grupos[i]
                 doc = montar_pagina_segurado(
                     caminho_modelo, nome, linhas_segurado, tabela.cabecalhos, tabela.indice_nome, tabela_referencia,
                     larguras_colunas,
                 )
-                _converter_e_anexar(doc, f"{i + 1:03d}_{sanitizar_nome_arquivo(nome)[:40]}")
+                _converter_e_anexar(doc, f"{i + 2:03d}_{sanitizar_nome_arquivo(nome)[:40]}")
                 etapa += 1
                 if callback_progresso:
                     callback_progresso(etapa, total_etapas, nome)
@@ -140,6 +152,49 @@ def gerar_pdf_capas(
         if gerar_docx:
             caminho_docx = pasta_saida / "Capas Geradas.docx"
             mesclar_documentos(documentos).save(str(caminho_docx))
+    finally:
+        pdf_final.close()
+        shutil.rmtree(pasta_temp, ignore_errors=True)
+
+    return caminho_pdf, caminho_docx
+
+
+def gerar_pdf_capa_titulo(
+    caminho_modelo: Path,
+    titulo: str,
+    pasta_saida: Path,
+    conversor: ConversorPDF,
+    topico: str | None = None,
+    gerar_docx: bool = False,
+) -> tuple[Path, Path | None]:
+    """Gera só a capa do título (a página 00, sem tabela de segurados) —
+    para quando a tese ainda não tem a lista de segurados definida.
+    Mesmo nome de saída ("Capas Geradas") que `gerar_pdf_capas`, pra manter
+    o restante do fluxo (Dividir capas, Juntar PDFs) funcionando igual."""
+    pasta_temp = Path(tempfile.mkdtemp(prefix="capa_titulo_fap_"))
+    pdf_final = fitz.open()
+    try:
+        doc = montar_capa(caminho_modelo, titulo, topico)
+        docx_tmp = pasta_temp / "00_capa.docx"
+        pdf_tmp = pasta_temp / "00_capa.pdf"
+        doc.save(str(docx_tmp))
+        conversor.converter(docx_tmp, pdf_tmp)
+
+        def _anexar():
+            with fitz.open(pdf_tmp) as paginas:
+                pdf_final.insert_pdf(paginas)
+
+        _com_repeticao(_anexar)
+
+        pasta_saida.mkdir(parents=True, exist_ok=True)
+        caminho_pdf = pasta_saida / "Capas Geradas.pdf"
+        pdf_final.set_metadata(metadados_anext())
+        _com_repeticao(lambda: pdf_final.save(str(caminho_pdf)))
+
+        caminho_docx = None
+        if gerar_docx:
+            caminho_docx = pasta_saida / "Capas Geradas.docx"
+            doc.save(str(caminho_docx))
     finally:
         pdf_final.close()
         shutil.rmtree(pasta_temp, ignore_errors=True)
