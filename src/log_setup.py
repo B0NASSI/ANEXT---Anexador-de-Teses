@@ -28,7 +28,7 @@ def configurar_logging(nome_arquivo: str, base_dir: Path) -> None:
     pasta_logs.mkdir(parents=True, exist_ok=True)
 
     handler = RotatingFileHandler(
-        pasta_logs / nome_arquivo, maxBytes=1_000_000, backupCount=3, encoding="utf-8"
+        pasta_logs / nome_arquivo, maxBytes=5_000_000, backupCount=3, encoding="utf-8"
     )
     handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
 

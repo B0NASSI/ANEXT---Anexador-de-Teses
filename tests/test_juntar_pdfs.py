@@ -74,3 +74,39 @@ def test_ultimo_documento_devolve_none_sem_nenhum_pdf(tmp_path):
     (pasta_mae / "1. FULANO DE TAL").mkdir()
 
     assert ultimo_documento(pasta_mae) is None
+
+
+def test_log_registra_ordem_real_e_paginas_de_cada_documento(tmp_path, caplog):
+    import hashlib
+    import logging
+
+    pasta_mae = tmp_path / "tese completa"
+    seg1 = pasta_mae / "1. FULANO DE TAL"
+    seg10 = pasta_mae / "10. BELTRANO"  # 10 depois de 2, não depois de 1 (ordem numérica)
+    seg2 = pasta_mae / "2. CICLANO DA SILVA"
+    for pasta in (seg1, seg10, seg2):
+        pasta.mkdir(parents=True)
+    criar_pdf_paginas(seg1 / "0. capa.pdf", [["A"]])
+    criar_pdf_paginas(seg1 / "1. cnis.pdf", [["B"], ["C"]])
+    criar_pdf_paginas(seg2 / "0. capa.pdf", [["D"]])
+    criar_pdf_paginas(seg10 / "0. capa.pdf", [["E"]])
+    anexo = tmp_path / "ACORDAO STJ.pdf"
+    criar_pdf_paginas(anexo, [["F"]])
+
+    with caplog.at_level(logging.INFO, logger="juntar_pdfs"):
+        saida = juntar_tese(pasta_mae, tmp_path / "saida", anexo_extra=anexo)
+
+    linhas = [r.getMessage() for r in caplog.records if r.getMessage().lstrip().startswith("[")]
+    assert [linha.split(" → ")[0].strip() for linha in linhas] == [
+        "[1/5] 1. FULANO DE TAL/0. capa.pdf",
+        "[2/5] 1. FULANO DE TAL/1. cnis.pdf",
+        "[3/5] 2. CICLANO DA SILVA/0. capa.pdf",
+        "[4/5] 10. BELTRANO/0. capa.pdf",
+        "[5/5] (anexo fixo) ACORDAO STJ.pdf",
+    ]
+    assert "páginas 2-3 (2 pág.)" in linhas[1] and "páginas 6-6" in linhas[4]
+    sha_cnis = hashlib.sha256((seg1 / "1. cnis.pdf").read_bytes()).hexdigest()
+    assert sha_cnis in linhas[1]
+    # o que o log diz bate com o PDF gerado de verdade
+    assert _textos_das_paginas(saida) == ["A", "B", "C", "D", "E", "F"]
+    assert any("PDF juntado salvo" in r.getMessage() and "6 páginas" in r.getMessage() for r in caplog.records)

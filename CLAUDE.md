@@ -10,7 +10,7 @@ App interno (Tkinter + ttkbootstrap) que gera, divide e junta os documentos de c
 - Espelho de código-fonte público `ANEXT---Anexador-de-Teses` (GitHub, B0NASSI) — é dali que o launcher instalado baixa as releases (`GITHUB_OWNER`/`GITHUB_REPO` em `src/launcher.py`). Precisa ser sincronizado manualmente a cada release (não é um subtree/submodule de verdade — ver "Processo de release" abaixo).
 - `ANEXT/anext-public-sync/` — worktree isolado (git próprio, gitignorado no monorepo) apontando pro repositório público (`anext-origin/main`, branch local `anext-public-main`). Fica parado entre releases — não precisa recriar a cada versão, só sincronizar os arquivos e dar push nele.
 
-## Versão atual: 4.2
+## Versão atual: 4.2.1
 
 Changelog completo em `NOTAS DE ATUALIZAÇÃO/*.txt` (um arquivo por versão — também aparece dentro do próprio app, no menu "Notas de atualização").
 

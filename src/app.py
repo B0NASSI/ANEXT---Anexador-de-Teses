@@ -1881,25 +1881,17 @@ class AplicativoDivisorPDF:
 
         logger.info("Iniciando junção de PDFs (modo=%s, origem=%s, saida=%s)", modo, origem, saida)
         try:
+            # a ordem exata, documento por documento, é registrada pelo próprio
+            # juntar_pdfs no momento da inserção
             if modo == "tese":
-                subpastas = juntar_pdfs.subpastas_numeradas(origem)
-                entradas = [
-                    f"{sub.name}/{arq.name}"
-                    for sub in subpastas
-                    for arq in juntar_pdfs.pdfs_em_ordem(sub)
-                ]
                 arquivos = [juntar_pdfs.juntar_tese(origem, saida, progresso_callback=progresso)]
             else:
-                entradas = [a.name for a in juntar_pdfs.pdfs_em_ordem(origem)]
                 arquivos = [juntar_pdfs.juntar_pasta(origem, saida, progresso_callback=progresso)]
         except Exception as exc:
             logger.exception("Falha ao juntar PDFs (origem=%s, saida=%s, modo=%s)", origem, saida, modo)
             self.root.after(0, self._juntar_falhou, _mensagem_erro_amigavel(exc))
             return
-        logger.info(
-            "Junção de PDFs concluída (modo=%s, origem=%s): %d doc(s) → %s | ordem: %s",
-            modo, origem, len(entradas), arquivos, entradas,
-        )
+        logger.info("Junção de PDFs concluída (modo=%s, origem=%s) → %s", modo, origem, arquivos)
         self.root.after(0, self._juntar_concluiu, arquivos, saida)
 
     def _atualizar_progresso_juntar(self, atual: int, total: int):
@@ -2456,7 +2448,11 @@ class AplicativoDivisorPDF:
                         if caminho_anexo_fixo is not None:
                             self.root.after(0, self._log_allin, "✓ Decisão do STJ anexada automaticamente", "item")
                         nome_final = self._nome_final_allin(topico, pasta_tese)
+                        nome_provisorio = caminho_final.name
                         caminho_final = caminho_final.replace(pasta_tese / f"{nome_final}.pdf")
+                        # o registro da ordem (juntar_pdfs) cita o nome provisório:
+                        # liga os dois pra o log apontar o arquivo que fica de verdade
+                        logger.info("PDF juntado renomeado: %s → %s (mesmo conteúdo, mesmo sha256)", nome_provisorio, caminho_final.name)
                     else:
                         motivo_sem_juntar = "cancelado"
                 else:
