@@ -6,8 +6,10 @@ Ponto de entrada do aplicativo. Execute com: python app.py
 
 import io
 import json
+import math
 import logging
 import os
+import random
 import re
 import shutil
 import sys
@@ -24,6 +26,7 @@ from ttkbootstrap.constants import BOTH, BOTTOM, CENTER, DISABLED, E, EW, LEFT, 
 from ttkbootstrap.widgets.scrolled import ScrolledText
 
 import anexo_fixo
+import halloween
 import documento
 import juntar_pdfs
 import log_setup
@@ -45,6 +48,16 @@ PAGINAS = (
     ("Dividir capas", "✂", "Divide o PDF de capas e coloca cada capa na pasta do seu segurado."),
     ("Juntar PDFs", "⧉", "Junta os documentos numerados de cada segurado num único PDF final."),
 )
+
+# Edição Halloween (de 28/10 a 02/11, ver tema.halloween_ativo): troca os ícones da
+# barra lateral. Todos emoji de apresentação "cheia" (largura igual entre si) —
+# os de apresentação só-texto (🕸, 🕷) caem numa fonte de largura diferente e
+# desalinham o texto dos itens, como já aconteceu com ⓘ e "?" no rodapé.
+if tema.HALLOWEEN:
+    PAGINAS = tuple(
+        (titulo, icone_halloween, descricao)
+        for (titulo, _icone, descricao), icone_halloween in zip(PAGINAS, ("🎃", "👻", "🦇", "🧙"))
+    )
 
 TEXTO_MANUAL = """\
 ANEXT — Anexador de Teses
@@ -372,8 +385,67 @@ def _colorir_barra_titulo(root, cor_hex: str) -> None:
         ctypes.windll.dwmapi.DwmSetWindowAttribute(
             hwnd, DWMWA_TEXT_COLOR, ctypes.byref(texto_branco), ctypes.sizeof(texto_branco)
         )
+        if tema.HALLOWEEN and sys.getwindowsversion().build < 22000:
+            # Windows 10 não pinta a barra na cor do tema: no Halloween a barra
+            # branca destoava do roxo escuro, então usa ao menos o modo escuro
+            # (atributo 20; 19 nas versões 1809-1909)
+            escuro = ctypes.c_int(1)
+            for atributo in (20, 19):
+                if ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, atributo, ctypes.byref(escuro), ctypes.sizeof(escuro)
+                ) == 0:
+                    break
+            # o Windows 10 só redesenha a barra quando a moldura "muda":
+            # SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_FRAMECHANGED
+            ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0020)
     except Exception:
         pass
+
+
+# fator da escala de tela do Windows (1.0 = 100%, 1.25 = 125%...). Definido
+# no início de AplicativoDivisorPDF: o ttkbootstrap deixa o processo "DPI
+# aware", então o TEXTO cresce com a escala, mas imagem tem tamanho fixo em
+# pixels — os desenhos da Edição Halloween usam _px() pra crescer junto
+_ESCALA = 1.0
+
+
+def _px(valor: float) -> int:
+    return max(1, round(valor * _ESCALA))
+
+
+_ICONES_ABOBORA: list = []  # PhotoImage precisa de uma referência viva, senão o Tk descarta o ícone
+
+
+def _definir_icone(janela) -> None:
+    """Ícone da janela e da barra de tarefas: abóbora na Edição Halloween (ver
+    tema.halloween_ativo), senão o pdf.ico de sempre."""
+    if tema.HALLOWEEN:
+        if not _ICONES_ABOBORA:
+            _ICONES_ABOBORA.extend(ImageTk.PhotoImage(halloween.icone_abobora(t)) for t in (16, 32, 48, 256))
+        janela.iconphoto(True, *_ICONES_ABOBORA)
+        return
+    try:
+        janela.iconbitmap(_caminho_recurso("assets/pdf.ico"))
+    except tk.TclError:
+        pass
+
+
+_ICONES_BOTAO_HALLOWEEN: dict = {}  # PhotoImage precisa de referência viva
+
+
+def _rotulo_botao(texto: str, icone_halloween: str) -> dict:
+    """Texto do botão; na Edição Halloween o emoji do começo do texto vira um
+    desenho ("bruxa" na vassoura, "caldeirao", "tumulo", "machado", "pocao")
+    ao lado do texto."""
+    if not tema.HALLOWEEN:
+        return {"text": texto}
+    if icone_halloween not in _ICONES_BOTAO_HALLOWEEN:
+        desenho = {
+            "bruxa": halloween.icone_bruxa_vassoura, "caldeirao": halloween.icone_caldeirao,
+            "tumulo": halloween.icone_tumulo, "machado": halloween.icone_machado, "pocao": halloween.icone_pocao,
+        }[icone_halloween]
+        _ICONES_BOTAO_HALLOWEEN[icone_halloween] = ImageTk.PhotoImage(desenho(_px(20)))
+    return {"text": " " + texto.split("  ", 1)[-1], "image": _ICONES_BOTAO_HALLOWEEN[icone_halloween], "compound": "left"}
 
 
 def _posicionar_sobre_janela(referencia, janela, largura: int, altura: int) -> None:
@@ -439,6 +511,8 @@ def _carregar_logo_para_fundo_escuro(caminho: str, altura: int) -> ImageTk.Photo
             laranja = r > 180 and 60 < g < 170 and b < 90
             if a and not laranja:
                 pixels[x, y] = (255, 255, 255, a)
+    if tema.HALLOWEEN:
+        imagem = halloween.logo_com_gosma(imagem)
     return ImageTk.PhotoImage(imagem)
 
 
@@ -659,18 +733,17 @@ class CaixaColarTabela:
 
 class AplicativoDivisorPDF:
     def __init__(self, root: ttk.Window):
+        global _ESCALA
         self.root = root
-        root.title(NOME_APP)
+        _ESCALA = max(1.0, root.winfo_fpixels("1i") / 96)
+        root.title(f"{NOME_APP} 🎃" if tema.HALLOWEEN else NOME_APP)
         root.geometry(f"{LARGURA_JANELA}x{ALTURA_JANELA}")
         root.resizable(True, True)
         root.minsize(900, 620)
         _posicionar_um_pouco_acima_do_centro(root, LARGURA_JANELA, ALTURA_JANELA)
         tema.aplicar(root)
         _colorir_barra_titulo(root, tema.COR_PRIMARIA)
-        try:
-            root.iconbitmap(_caminho_recurso("assets/pdf.ico"))
-        except tk.TclError:
-            pass
+        _definir_icone(root)
 
         self.var_entrada = tk.StringVar()
         self.var_saida = tk.StringVar()
@@ -725,6 +798,8 @@ class AplicativoDivisorPDF:
         # o Notebook só gerencia as páginas; quem navega é a barra lateral
         self.notebook = ttk.Notebook(conteudo)
         self.notebook.pack(fill=BOTH, expand=True, padx=28, pady=(4, 18))
+        if tema.HALLOWEEN:
+            self._decorar_conteudo_halloween(conteudo)  # depois do Notebook: fica por cima
 
         aba_allin = ttk.Frame(self.notebook, padding=(2, 22, 2, 10))
         aba_capas = ttk.Frame(self.notebook, padding=(2, 22, 2, 10))
@@ -832,6 +907,18 @@ class AplicativoDivisorPDF:
         produto.pack(fill=X)
         ttk.Label(produto, text="ANEXT", style="Sidebar.TLabel", font=("Segoe UI", 20, "bold")).pack(anchor=W)
         ttk.Label(produto, text="Anexador de Teses", style="SidebarSuave.TLabel").pack(anchor=W)
+        if tema.HALLOWEEN:
+            # abóbora desenhada (não o emoji 🎃, pequeno e baixo em relação ao
+            # texto); compound="left" centraliza a imagem na altura da frase, e a
+            # margem transparente embaixo sobe a abóbora até o meio das letras
+            abobora = halloween.icone_abobora(_px(18))
+            selo = Image.new("RGBA", (abobora.width, abobora.height + _px(4)), (0, 0, 0, 0))
+            selo.alpha_composite(abobora, (0, 0))
+            self._img_abobora_selo = ImageTk.PhotoImage(selo)
+            ttk.Label(
+                produto, text=" Edição Halloween", image=self._img_abobora_selo, compound="left",
+                style="SidebarSuave.TLabel", foreground=tema.COR_SECUNDARIA, font=("Segoe UI", 9, "bold"),
+            ).pack(anchor=W, pady=(6, 0))
 
         # cada item tem uma barrinha à esquerda que acende em laranja quando é o ativo
         self._botoes_nav = []
@@ -862,6 +949,383 @@ class AplicativoDivisorPDF:
         ttk.Label(rodape, text=f"Versão {_ler_versao_local()}", style="SidebarSuave.TLabel").pack(anchor=W, padx=20, pady=(12, 0))
         # a seleção inicial (self._ir_para(0)) só acontece depois que as 4
         # páginas existirem — ver fim do __init__
+        if tema.HALLOWEEN:
+            self._decorar_sidebar_halloween(barra, rodape)
+
+    def _decorar_sidebar_halloween(self, barra, rodape) -> None:
+        """Céu estrelado em todo o espaço vazio entre os itens de navegação e o
+        rodapé, com a cena (lua, morcegos, abóbora, lápides) no fundo. A cena
+        só aparece se couber, senão cobriria os botões numa janela baixa."""
+        # 3 tamanhos, do maior pro menor: cena alta (lua no alto com brilho grande e
+        # vários morcegos), média (lua mais baixa, brilho menor) e baixa (só o morro:
+        # abóbora e lápides). Cada uma é desenhada à parte, não recortada da maior —
+        # o recorte cortaria o brilho da lua reto e criaria uma linha visível.
+        self._cenas_halloween = [
+            (ImageTk.PhotoImage(img), img.height)
+            for img in (
+                halloween.cena_sidebar(LARGURA_SIDEBAR, 400),
+                halloween.cena_sidebar(LARGURA_SIDEBAR, 230),
+                halloween.cena_sidebar(LARGURA_SIDEBAR, 140, ceu=False),
+            )
+        ]
+
+        # céu: um Canvas alto desenhado uma vez só — o Tk recorta o que passa da
+        # altura do widget, então redimensionar a janela é só mudar a altura dele
+        altura_ceu_max = 1500
+        ceu = tk.Canvas(
+            barra, width=LARGURA_SIDEBAR, height=altura_ceu_max, borderwidth=0, highlightthickness=0,
+            background=tema.COR_PRIMARIA,
+        )
+        estrelas_ceu = []  # (item do canvas, cor normal)
+        for x, y, r, opacidade in halloween.estrelas(LARGURA_SIDEBAR, altura_ceu_max):
+            cor = halloween.misturar(tema.COR_PRIMARIA, (255, 245, 210), opacidade)
+            if r >= 1.8:  # as maiores brilham em losango
+                item = ceu.create_polygon(
+                    x, y - 3.4, x + 0.9, y - 0.9, x + 3.4, y, x + 0.9, y + 0.9,
+                    x, y + 3.4, x - 0.9, y + 0.9, x - 3.4, y, x - 0.9, y - 0.9,
+                    fill=cor, outline="",
+                )
+            else:
+                item = ceu.create_oval(x - r, y - r, x + r, y + r, fill=cor, outline="")
+            estrelas_ceu.append((item, cor))
+
+        # a cena é uma imagem dentro do mesmo Canvas, no pé dele (e não um Label à
+        # parte): assim o morcego animado consegue voar por cima dela também
+        cena = ceu.create_image(0, 0, anchor="sw", image=self._cenas_halloween[0][0], state="hidden")
+        self._animar_ceu_halloween(ceu, estrelas_ceu)  # o morcego é criado depois: fica por cima
+        ultima_linha_nav = self._botoes_nav[-1].master
+
+        def _posicionar(_evt=None):
+            if rodape.winfo_y() <= 0:
+                return  # layout ainda não terminou: posições medidas seriam todas 0
+            base_nav = ultima_linha_nav.winfo_y() + ultima_linha_nav.winfo_height()
+            topo_ceu = base_nav + 6
+            altura = rodape.winfo_y() - 8 - topo_ceu
+            if altura <= 10:
+                ceu.place_forget()
+                return
+            ceu.place(x=0, y=topo_ceu, width=LARGURA_SIDEBAR, height=min(altura, altura_ceu_max))
+            indice = next((i for i, (_foto, h) in enumerate(self._cenas_halloween) if altura >= h + 4), None)
+            if indice is None:
+                ceu.itemconfigure(cena, state="hidden")
+            else:
+                ceu.itemconfigure(cena, image=self._cenas_halloween[indice][0], state="normal")
+                ceu.coords(cena, 0, altura)
+
+        # reavalia quando a própria barra, o rodapé ou o menu mudam de tamanho/
+        # posição — só ouvir a barra deixava a medição acontecer antes do layout
+        # interno terminar, concluir "não cabe" e nunca mais reavaliar
+        for widget in (barra, rodape, ultima_linha_nav):
+            widget.bind("<Configure>", _posicionar, add="+")
+
+    def _animar_ceu_halloween(self, ceu, estrelas_ceu) -> None:
+        """Estrelas piscando de leve e, de tempos em tempos, um morcego
+        atravessando o céu da barra lateral batendo as asas."""
+        sorteio = random.Random()
+        apagada = halloween.misturar(tema.COR_PRIMARIA, (255, 245, 210), 45)
+        piscando: list = []
+
+        def _piscar():
+            try:
+                for item, cor in piscando:
+                    ceu.itemconfigure(item, fill=cor)
+                piscando.clear()
+                for item, cor in sorteio.sample(estrelas_ceu, k=min(10, len(estrelas_ceu))):
+                    ceu.itemconfigure(item, fill=apagada)
+                    piscando.append((item, cor))
+                ceu.after(450, _piscar)
+            except tk.TclError:
+                pass  # janela fechada
+
+        asas_abaixadas = halloween.silhueta_morcego(0.75, asas_erguidas=False)
+        asas_erguidas = halloween.silhueta_morcego(0.75, asas_erguidas=True)
+        morcego = ceu.create_polygon(0, 0, 0, 0, 0, 0, fill="#0E0619", outline="", state="hidden")
+        voo = {"x": 0.0, "y": 0.0, "quadro": 0, "sentido": 1}
+
+        def _novo_voo():
+            try:
+                altura = ceu.winfo_height()
+                if not ceu.winfo_ismapped() or altura < 60:
+                    ceu.after(5000, _novo_voo)
+                    return
+                voo["sentido"] = sorteio.choice((1, -1))
+                voo["x"] = -30.0 if voo["sentido"] == 1 else LARGURA_SIDEBAR + 30.0
+                # voa acima do morro (a abóbora e as lápides ocupam os ~100px de baixo)
+                voo["y"] = sorteio.uniform(25, max(30, altura - 110))
+                voo["quadro"] = 0
+                ceu.itemconfigure(morcego, state="normal")
+                _bater_asas()
+            except tk.TclError:
+                pass
+
+        def _bater_asas():
+            try:
+                voo["x"] += 3 * voo["sentido"]
+                voo["quadro"] += 1
+                pontos = asas_erguidas if (voo["quadro"] // 4) % 2 else asas_abaixadas
+                oscila = 5 * math.sin(voo["quadro"] / 6)
+                ceu.coords(
+                    morcego,
+                    *[c for px, py in pontos for c in (voo["x"] + px * voo["sentido"], voo["y"] + py + oscila)],
+                )
+                if -40 <= voo["x"] <= LARGURA_SIDEBAR + 40:
+                    ceu.after(40, _bater_asas)
+                else:
+                    ceu.itemconfigure(morcego, state="hidden")
+                    ceu.after(sorteio.randint(7000, 15000), _novo_voo)
+            except tk.TclError:
+                pass
+
+        ceu.after(450, _piscar)
+        ceu.after(2500, _novo_voo)
+
+    def _fim_das_descricoes(self, conteudo) -> int:
+        """Até onde (em X, dentro de `conteudo`) vai o texto de descrição mais
+        comprido das 4 páginas. A teia e o fantasma só aparecem à direita
+        disso — medir o texto de verdade (e não uma largura fixa de janela)
+        acompanha a escala de tela, que aumenta a fonte."""
+        rotulos = getattr(self, "_descricoes_paginas", [])
+        visiveis = [r for r in rotulos if r.winfo_ismapped()]
+        if not visiveis:
+            return 10**6  # ainda sem layout: não mostra nada por enquanto
+        margem = visiveis[0].winfo_rootx() - conteudo.winfo_rootx()
+        return margem + max(r.winfo_reqwidth() for r in rotulos) + _px(12)
+
+    def _decorar_conteudo_halloween(self, conteudo) -> None:
+        """Teia com aranha no canto superior direito. Some se não couber ao
+        lado da descrição da página (janela estreita ou escala de tela alta)."""
+        # cresce no máximo 30% com a escala: mais alta que isso ela desce por
+        # cima dos campos do primeiro card (o texto cresce, o vão até o card não)
+        fator = min(_ESCALA, 1.3)
+        imagem = halloween.teia_com_aranha(round(150 * fator), round(140 * fator), cor_fio="#8C7DAA")
+        self._largura_teia = imagem.width
+        self._img_teia_halloween = ImageTk.PhotoImage(imagem)
+        teia = tk.Label(
+            conteudo, image=self._img_teia_halloween, borderwidth=0, highlightthickness=0,
+            background=tema.COR_FUNDO,
+        )
+
+        def _posicionar(_evt=None):
+            if conteudo.winfo_width() - imagem.width >= self._fim_das_descricoes(conteudo):
+                teia.place(relx=1.0, x=0, y=0, anchor="ne")
+            else:
+                teia.place_forget()
+
+        conteudo.bind("<Configure>", _posicionar, add="+")
+        conteudo.after(300, _posicionar)  # as descrições só têm largura depois do 1º layout
+        self._decorar_fantasma_halloween(conteudo)
+
+    def _decorar_fantasma_halloween(self, conteudo) -> None:
+        """Fantasma do FAP flutuando no topo da área branca, no vão entre a
+        descrição da página e a teia. Fica num Canvas pequeno e fixo (só o
+        desenho se mexe dentro dele, sem reposicionar widgets a cada quadro).
+        Passar o mouse em cima (ou de tempos em tempos, sozinho) faz ele soltar
+        uma piadinha com os "sustos" do FAP num balão. Some em janelas
+        estreitas, onde cobriria a descrição da página."""
+        imagem = halloween.fantasma_fap(_px(34))
+        self._img_fantasma_fap = ImageTk.PhotoImage(imagem)
+        largura, altura = imagem.width + _px(10), imagem.height + _px(16)
+        tela = tk.Canvas(
+            conteudo, width=largura, height=altura, borderwidth=0, highlightthickness=0,
+            background=tema.COR_FUNDO,
+        )
+        centro = (largura / 2, altura / 2)
+        fantasma = tela.create_image(*centro, image=self._img_fantasma_fap)
+        sorteio = random.Random()
+        estado = {"t": 0.0, "balao": None, "ultima": None}
+
+        def _flutuar():
+            try:
+                estado["t"] += 0.05
+                tela.coords(
+                    fantasma,
+                    centro[0] + _px(2) * math.sin(estado["t"] * 1.3),
+                    centro[1] + _px(5) * math.sin(estado["t"] * 2.1),
+                )
+                tela.after(50, _flutuar)
+            except tk.TclError:
+                pass  # janela fechada
+
+        def _fechar_balao(suave=False):
+            balao = estado["balao"]
+            if balao is None:
+                return
+            estado["balao"] = None
+
+            def _sumir(alfa=1.0):
+                try:
+                    if alfa <= 0:
+                        balao.destroy()
+                        return
+                    balao.attributes("-alpha", alfa)
+                    balao.after(30, _sumir, round(alfa - 0.2, 2))
+                except tk.TclError:
+                    pass
+
+            _sumir(1.0 if suave else 0)
+
+        def _piada(_evt=None, texto=None, duracao=4500):
+            # consolo de erro aparece com a caixa de erro aberta (que tira o
+            # foco da janela principal): esse não fecha por falta de foco
+            consolo = texto is not None
+            if texto is not None:
+                _fechar_balao()  # consolo de erro passa na frente de piada aberta
+            if not tela.winfo_ismapped() or estado["balao"] is not None:
+                return
+            if texto is None:
+                opcoes = [p for p in halloween.PIADAS_FAP if p != estado["ultima"]]
+                estado["ultima"] = texto = sorteio.choice(opcoes)
+            # balão de fala numa janelinha sem borda, à esquerda do fantasma, com
+            # o lado de fora transparente (cantos redondos + pontinha apontando
+            # pro fantasma): flutua por cima da tela sem ocupar espaço no layout
+            chave = "#FF00FE"
+            balao = tk.Toplevel(self.root)
+            balao.overrideredirect(True)
+            balao.attributes("-transparentcolor", chave)
+            balao.attributes("-alpha", 0.0)
+            quadro = tk.Canvas(balao, background=chave, borderwidth=0, highlightthickness=0)
+            quadro.pack()
+            texto_id = quadro.create_text(
+                12, 8, text=texto, anchor="nw", width=_px(220), justify=LEFT,
+                fill=tema.COR_PRIMARIA, font=("Segoe UI", 9, "bold"),
+            )
+            x0, y0, x1, y1 = quadro.bbox(texto_id)
+            cauda = 15
+            largura_b, altura_b = (x1 - x0) + 24 + cauda, max((y1 - y0) + 16, 34)
+            imagem = halloween.balao_fala(
+                largura_b, altura_b, tema.COR_FUNDO_SUAVE, tema.COR_PRIMARIA, tema.COR_FUNDO, chave, cauda=cauda,
+            )
+            foto = ImageTk.PhotoImage(imagem)
+            quadro.foto = foto  # referência viva
+            quadro.configure(width=largura_b, height=altura_b)
+            quadro.tag_lower(quadro.create_image(0, 0, image=foto, anchor="nw"))
+            quadro.coords(texto_id, 12, (altura_b - (y1 - y0)) / 2)
+            # ponta da cauda (y = 20 na imagem) na altura dos olhos do fantasma
+            x = tela.winfo_rootx() - largura_b + 6
+            y = tela.winfo_rooty() + _px(18) - 20
+            balao.geometry(f"{largura_b}x{altura_b}+{x}+{y}")
+            estado["balao"] = balao
+            posicao_janela = (self.root.winfo_rootx(), self.root.winfo_rooty())
+
+            def _aparecer(alfa=0.0):
+                try:
+                    if estado["balao"] is not balao:
+                        return
+                    balao.attributes("-alpha", min(alfa, 1.0))
+                    if alfa < 1.0:
+                        balao.after(30, _aparecer, round(alfa + 0.2, 2))
+                except tk.TclError:
+                    pass
+
+            def _vigiar():
+                # o balão é uma janela à parte: fecha se o ANEXT mudar de lugar,
+                # for minimizado ou perder o foco (senão ficaria "cravado" na tela)
+                try:
+                    if estado["balao"] is not balao:
+                        return
+                    if (
+                        (self.root.winfo_rootx(), self.root.winfo_rooty()) != posicao_janela
+                        or self.root.state() != "normal"
+                        or (not consolo and self.root.focus_get() is None)
+                    ):
+                        _fechar_balao()
+                        return
+                    balao.after(120, _vigiar)
+                except (tk.TclError, KeyError):
+                    _fechar_balao()
+
+            _aparecer()
+            balao.after(120, _vigiar)
+            balao.after(duracao, lambda: estado["balao"] is balao and _fechar_balao(suave=True))
+
+        def _piada_de_tempos_em_tempos():
+            try:
+                # só fala sozinho com o ANEXT em primeiro plano (não aparece por
+                # cima de outro programa que a pessoa estiver usando)
+                if self.root.focus_get() is not None and self.root.state() == "normal":
+                    _piada()
+                tela.after(sorteio.randint(60_000, 120_000), _piada_de_tempos_em_tempos)
+            except (tk.TclError, KeyError):
+                pass
+
+        tela.tag_bind(fantasma, "<Enter>", _piada)
+        self._fantasma_falar = _piada
+        tela.after(50, _flutuar)
+        tela.after(sorteio.randint(20_000, 40_000), _piada_de_tempos_em_tempos)
+
+        def _posicionar(_evt=None):
+            teia = self._largura_teia
+            if conteudo.winfo_width() - teia - largura >= self._fim_das_descricoes(conteudo):
+                tela.place(relx=1.0, x=-teia, y=_px(10), anchor="ne")
+            else:
+                tela.place_forget()
+                _fechar_balao()
+
+        conteudo.bind("<Configure>", _posicionar, add="+")
+        conteudo.after(300, _posicionar)
+
+    def _bruxa_na_barra(self, barra) -> None:
+        """Na Edição Halloween, uma bruxinha voa logo à frente da parte
+        preenchida da barra de progresso, puxando a barra por uma corda.
+        Fica numa faixa (Canvas) colada em cima da barra: a corda é desenhada
+        a cada quadro da ponta laranja até a vassoura, então sempre encosta."""
+        if not tema.HALLOWEEN:
+            return
+        imagem = halloween.icone_bruxa_vassoura(_px(22))
+        foto = ImageTk.PhotoImage(imagem)
+        altura = imagem.height + _px(6)
+        faixa = tk.Canvas(
+            barra.master, height=altura, borderwidth=0, highlightthickness=0, background=tema.COR_FUNDO,
+        )
+        faixa.foto = foto  # referência viva
+        faixa.pack(fill=X, before=barra)
+        corda = faixa.create_line(0, 0, 0, 0, fill="#6B3F17", width=2, smooth=True)
+        bruxa = faixa.create_image(0, 0, image=foto, anchor="nw")
+        # ponto da palha da vassoura (atrás da bruxa), onde a corda amarra
+        palha = (imagem.width * 0.06, imagem.height * 0.78)
+        frente = 14  # quanto a bruxa voa à frente da ponta da barra
+        estado = {"x": 0.0, "t": 0.0}
+
+        def _seguir():
+            try:
+                if faixa.winfo_ismapped():
+                    maximo = float(barra.cget("maximum")) or 1.0
+                    largura = barra.winfo_width()
+                    alvo = min(1.0, float(barra.cget("value")) / maximo) * largura
+                    if alvo < estado["x"]:
+                        estado["x"] = alvo  # barra reiniciou: volta direto pro começo
+                    else:
+                        # desliza até a ponta em vez de pular (o progresso anda aos saltos)
+                        estado["x"] += (alvo - estado["x"]) * 0.25
+                    estado["t"] += 0.25
+                    ponta = estado["x"]
+                    bx = min(ponta + frente, largura - imagem.width)
+                    by = 1 + 1.5 * (1 + math.sin(estado["t"]))
+                    faixa.coords(bruxa, bx, by)
+                    # corda meio frouxa: da ponta laranja (base da faixa) até a vassoura
+                    nx, ny = bx + palha[0], by + palha[1]
+                    faixa.coords(corda, ponta, altura, (ponta + nx) / 2, altura - 1, nx, ny)
+                barra.after(60, _seguir)
+            except tk.TclError:
+                pass  # janela fechada
+
+        barra.after(60, _seguir)
+
+    def _com_frase_halloween(self, titulo: str) -> str:
+        """Na Edição Halloween, abre o resultado com uma frase temática."""
+        if not tema.HALLOWEEN:
+            return titulo
+        return f"{random.choice(halloween.MENSAGENS_SUCESSO)}\n{titulo.lstrip()}"
+
+    def _fantasma_consolar(self) -> None:
+        """Na Edição Halloween, o fantasma do FAP solta uma piada de consolo
+        quando alguma operação dá erro (se estiver visível)."""
+        falar = getattr(self, "_fantasma_falar", None)
+        if tema.HALLOWEEN and falar is not None:
+            try:
+                falar(texto=random.choice(halloween.PIADAS_ERRO), duracao=7000)
+            except tk.TclError:
+                pass
 
     def _criar_link_sidebar(self, pai, icone: str, texto: str, comando) -> None:
         """Link do rodapé da barra lateral (ícone + texto). Usa dois rótulos
@@ -910,7 +1374,9 @@ class AplicativoDivisorPDF:
         cabecalho = ttk.Frame(pai)
         cabecalho.pack(fill=X, pady=(0, 16))
         ttk.Label(cabecalho, text=titulo, style="Titulo.TLabel").pack(anchor=W)
-        ttk.Label(cabecalho, text=descricao, style="Descricao.TLabel").pack(anchor=W, pady=(2, 0))
+        rotulo = ttk.Label(cabecalho, text=descricao, style="Descricao.TLabel")
+        rotulo.pack(anchor=W, pady=(2, 0))
+        self.__dict__.setdefault("_descricoes_paginas", []).append(rotulo)
 
     def _abrir_log(self) -> None:
         caminho_log = _pasta_executavel() / "logs" / "anext.log"
@@ -950,7 +1416,7 @@ class AplicativoDivisorPDF:
     def _montar_acoes(self, pai):
         acoes = ttk.Frame(pai)
         acoes.pack(fill=X, pady=(0, 18))
-        botao_limpar = ttk.Button(acoes, text="🧹  Limpar", command=self._limpar, bootstyle="danger-outline")
+        botao_limpar = ttk.Button(acoes, **_rotulo_botao("🧹  Limpar", "bruxa"), command=self._limpar, bootstyle="danger-outline")
         botao_limpar.pack(side=LEFT)
         self.botao_abrir_pasta = BotaoResultado(
             acoes, dict(side=LEFT, padx=(0, 10), before=botao_limpar),
@@ -958,7 +1424,7 @@ class AplicativoDivisorPDF:
             state=DISABLED,
         )
         self.botao_dividir = ttk.Button(
-            acoes, text="✂  Dividir PDF", command=self._dividir, bootstyle="secondary", width=18
+            acoes, **_rotulo_botao("✂  Dividir PDF", "machado"), command=self._dividir, bootstyle="secondary", width=18
         )
         self.botao_dividir.pack(side=RIGHT)
 
@@ -991,10 +1457,7 @@ class AplicativoDivisorPDF:
         janela.title("Manual rápido")
         janela.resizable(False, False)
         _posicionar_sobre_janela(self.root, janela, 600, 560)
-        try:
-            janela.iconbitmap(_caminho_recurso("assets/pdf.ico"))
-        except tk.TclError:
-            pass
+        _definir_icone(janela)
 
         ttk.Label(janela, text="📖 Manual rápido", font=("Segoe UI", 14, "bold")).pack(anchor=W, padx=20, pady=(18, 2))
         ttk.Label(
@@ -1011,10 +1474,7 @@ class AplicativoDivisorPDF:
         janela.title("Notas de atualização")
         janela.resizable(False, False)
         _posicionar_sobre_janela(self.root, janela, 600, 560)
-        try:
-            janela.iconbitmap(_caminho_recurso("assets/pdf.ico"))
-        except tk.TclError:
-            pass
+        _definir_icone(janela)
 
         self._imagem_notas_titulo = _carregar_imagem_altura(_caminho_recurso("assets/icons8-informações-50.png"), 20)
         ttk.Label(
@@ -1116,11 +1576,12 @@ class AplicativoDivisorPDF:
     def _dividir_falhou(self, mensagem: str):
         self.botao_dividir.config(state=NORMAL)
         self._escrever_log("Erro ao dividir o PDF:", [mensagem], erro=True)
+        self._fantasma_consolar()
         messagebox.showerror("Erro ao dividir o PDF", mensagem, parent=self.root)
 
     def _dividir_concluiu(self, arquivos: list[Path], saida: Path):
         self.botao_dividir.config(state=NORMAL)
-        titulo = f"{len(arquivos)} arquivo(s) gerado(s) em:\n  {saida}"
+        titulo = self._com_frase_halloween(f"{len(arquivos)} arquivo(s) gerado(s) em:\n  {saida}")
         itens = [f"✓ {arquivo.relative_to(saida)}" for arquivo in arquivos]
         self._escrever_log(titulo, itens)
         self.botao_abrir_pasta.config(state=NORMAL)
@@ -1168,7 +1629,7 @@ class AplicativoDivisorPDF:
     def _montar_acoes_juntar(self, pai):
         acoes = ttk.Frame(pai)
         acoes.pack(fill=X, pady=(0, 18))
-        botao_limpar = ttk.Button(acoes, text="🧹  Limpar", command=self._limpar_juntar, bootstyle="danger-outline")
+        botao_limpar = ttk.Button(acoes, **_rotulo_botao("🧹  Limpar", "bruxa"), command=self._limpar_juntar, bootstyle="danger-outline")
         botao_limpar.pack(side=LEFT)
         self.botao_abrir_pasta_juntar = BotaoResultado(
             acoes, dict(side=LEFT, padx=(0, 10), before=botao_limpar),
@@ -1181,7 +1642,7 @@ class AplicativoDivisorPDF:
             state=DISABLED,
         )
         self.botao_juntar = ttk.Button(
-            acoes, text="🔗  Juntar PDFs", command=self._juntar, bootstyle="secondary", width=18
+            acoes, **_rotulo_botao("🔗  Juntar PDFs", "pocao"), command=self._juntar, bootstyle="secondary", width=18
         )
         self.botao_juntar.pack(side=RIGHT)
 
@@ -1191,6 +1652,7 @@ class AplicativoDivisorPDF:
             self.frame_progresso_juntar, mode="determinate", bootstyle="secondary",
         )
         self.barra_progresso_juntar.pack(fill=X, pady=(0, 4))
+        self._bruxa_na_barra(self.barra_progresso_juntar)
         self.label_progresso_juntar = ttk.Label(
             self.frame_progresso_juntar, text="", bootstyle="secondary", font=("Segoe UI", 9),
         )
@@ -1291,10 +1753,7 @@ class AplicativoDivisorPDF:
         janela.title("Confirmar antes de juntar")
         janela.resizable(False, False)
         janela.transient(self.root)
-        try:
-            janela.iconbitmap(_caminho_recurso("assets/pdf.ico"))
-        except tk.TclError:
-            pass
+        _definir_icone(janela)
 
         resultado = {"confirmado": False}
 
@@ -1451,12 +1910,13 @@ class AplicativoDivisorPDF:
         self.botao_juntar.config(state=NORMAL)
         self.frame_progresso_juntar.pack_forget()
         self._escrever_log_juntar("Erro ao juntar os PDFs:", [mensagem], erro=True)
+        self._fantasma_consolar()
         messagebox.showerror("Erro ao juntar os PDFs", mensagem, parent=self.root)
 
     def _juntar_concluiu(self, arquivos: list[Path], saida: Path):
         self.botao_juntar.config(state=NORMAL)
         self.frame_progresso_juntar.pack_forget()
-        titulo = f"{len(arquivos)} arquivo(s) gerado(s) em:\n  {saida}"
+        titulo = self._com_frase_halloween(f"{len(arquivos)} arquivo(s) gerado(s) em:\n  {saida}")
         itens = [f"✓ {arquivo.relative_to(saida)}" for arquivo in arquivos]
         self._escrever_log_juntar(titulo, itens)
         self.botao_abrir_pasta_juntar.config(state=NORMAL)
@@ -1603,7 +2063,7 @@ class AplicativoDivisorPDF:
     def _montar_acoes_allin(self, pai):
         acoes = ttk.Frame(pai)
         acoes.pack(fill=X, pady=(10, 10))
-        botao_limpar = ttk.Button(acoes, text="🧹  Limpar", command=self._limpar_allin, bootstyle="danger-outline")
+        botao_limpar = ttk.Button(acoes, **_rotulo_botao("🧹  Limpar", "bruxa"), command=self._limpar_allin, bootstyle="danger-outline")
         botao_limpar.pack(side=LEFT)
         self.botao_abrir_pasta_allin = BotaoResultado(
             acoes, dict(side=LEFT, padx=(0, 10), before=botao_limpar),
@@ -1616,7 +2076,7 @@ class AplicativoDivisorPDF:
             bootstyle="primary", state=DISABLED,
         )
         self.botao_gerar_allin = ttk.Button(
-            acoes, text="🚀  Gerar anexo completo", command=self._gerar_allin, bootstyle="secondary",
+            acoes, **_rotulo_botao("🚀  Gerar anexo completo", "caldeirao"), command=self._gerar_allin, bootstyle="secondary",
         )
         self.botao_gerar_allin.pack(side=RIGHT)
 
@@ -1627,6 +2087,7 @@ class AplicativoDivisorPDF:
             self.frame_progresso_allin, mode="determinate", bootstyle="secondary",
         )
         self.barra_progresso_allin.pack(fill=X, pady=(0, 4))
+        self._bruxa_na_barra(self.barra_progresso_allin)
         linha_status = ttk.Frame(self.frame_progresso_allin)
         linha_status.pack(fill=X)
         self.label_progresso_allin = ttk.Label(
@@ -2037,6 +2498,7 @@ class AplicativoDivisorPDF:
     def _allin_falhou(self, mensagem: str):
         self._restaurar_botao_allin()
         self._log_allin(f"ERRO: {mensagem}", "erro")
+        self._fantasma_consolar()
         messagebox.showerror("Erro ao gerar o anexo completo", mensagem, parent=self.root)
 
     def _allin_concluiu(self, caminho_final: Path | None, motivo_sem_juntar: str | None = None):
@@ -2056,7 +2518,7 @@ class AplicativoDivisorPDF:
             return
         self._ultimo_pdf_allin = caminho_final
         self._log_allin("✓ PDFs juntados", "item")
-        self._log_allin(f"\nPDF final gerado em:\n{caminho_final}", "titulo")
+        self._log_allin(self._com_frase_halloween(f"\nPDF final gerado em:\n{caminho_final}"), "titulo")
         self.botao_abrir_pdf_allin.config(state=NORMAL)
 
     # =========================================================================
@@ -2169,7 +2631,7 @@ class AplicativoDivisorPDF:
     def _montar_acoes_capas(self, pai):
         acoes = ttk.Frame(pai)
         acoes.pack(fill=X, pady=(10, 10))
-        botao_limpar = ttk.Button(acoes, text="🧹  Limpar", command=self._limpar_capas, bootstyle="danger-outline")
+        botao_limpar = ttk.Button(acoes, **_rotulo_botao("🧹  Limpar", "bruxa"), command=self._limpar_capas, bootstyle="danger-outline")
         botao_limpar.pack(side=LEFT)
         self.botao_abrir_pasta_capas = BotaoResultado(
             acoes, dict(side=LEFT, padx=(0, 10), before=botao_limpar),
@@ -2182,7 +2644,7 @@ class AplicativoDivisorPDF:
             bootstyle="primary", state=DISABLED,
         )
         self.botao_gerar_capas = ttk.Button(
-            acoes, text="📑  Gerar capas", command=self._gerar_capas, bootstyle="secondary", width=20,
+            acoes, **_rotulo_botao("📑  Gerar capas", "tumulo"), command=self._gerar_capas, bootstyle="secondary", width=20,
         )
         self.botao_gerar_capas.pack(side=RIGHT)
 
@@ -2192,6 +2654,7 @@ class AplicativoDivisorPDF:
             self.frame_progresso_capas, mode="determinate", bootstyle="secondary",
         )
         self.barra_progresso_capas.pack(fill=X, pady=(0, 4))
+        self._bruxa_na_barra(self.barra_progresso_capas)
         self.label_progresso_capas = ttk.Label(
             self.frame_progresso_capas, text="", bootstyle="secondary", font=("Segoe UI", 9),
         )
@@ -2332,10 +2795,7 @@ class AplicativoDivisorPDF:
         janela.title("Padronizar tabela")
         janela.transient(self.root)
         janela.resizable(False, False)
-        try:
-            janela.iconbitmap(_caminho_recurso("assets/pdf.ico"))
-        except tk.TclError:
-            pass
+        _definir_icone(janela)
 
         ttk.Label(
             janela, text="Defina a largura de cada coluna (%) e confira na prévia real, gerada com o Word.",
@@ -2621,10 +3081,7 @@ class AplicativoDivisorPDF:
         janela.title("Selecionar páginas a gerar")
         janela.resizable(False, False)
         janela.transient(self.root)
-        try:
-            janela.iconbitmap(_caminho_recurso("assets/pdf.ico"))
-        except tk.TclError:
-            pass
+        _definir_icone(janela)
 
         ttk.Label(janela, text="Selecionar páginas a gerar", font=("Segoe UI", 13, "bold")).pack(
             anchor=W, padx=24, pady=(20, 4),
@@ -2935,6 +3392,7 @@ class AplicativoDivisorPDF:
     def _capas_falhou(self, mensagem: str):
         self._restaurar_botao_capas()
         self._log_capas(f"ERRO: {mensagem}", "erro")
+        self._fantasma_consolar()
         messagebox.showerror("Erro ao gerar capas", mensagem, parent=self.root)
 
     def _capas_concluiu(self, caminho_pdf: Path, caminho_docx: Path | None):
@@ -2942,7 +3400,7 @@ class AplicativoDivisorPDF:
         self._ultimo_pdf_capas = caminho_pdf
         self.botao_abrir_pasta_capas.config(state=NORMAL)
         self.botao_abrir_pdf_capas.config(state=NORMAL)
-        self._log_capas(f"\nPDF gerado em:\n{caminho_pdf}", "titulo")
+        self._log_capas(self._com_frase_halloween(f"\nPDF gerado em:\n{caminho_pdf}"), "titulo")
         if caminho_docx is not None:
             self._log_capas(f"Word gerado em:\n{caminho_docx}", "titulo")
 
@@ -3000,9 +3458,29 @@ def _avisar_se_desatualizado(root) -> None:
     threading.Thread(target=_checar, daemon=True).start()
 
 
+def _identidade_propria_na_barra_de_tarefas() -> None:
+    """Na Edição Halloween, faz a barra de tarefas mostrar o ícone da janela
+    (abóbora) em vez do ícone do executável. O Windows agrupa os botões da
+    barra pelo "AppUserModelID" do processo e, sem um próprio, mostra o ícone
+    do .exe (ANEXT.exe -> pdf.ico; rodando do código-fonte, o do python.exe).
+    Precisa rodar antes de criar qualquer janela. Efeito colateral, aceito
+    por serem poucos dias: quem tem o ANEXT fixado na barra vê o botão da janela
+    aberta separado do atalho fixado."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("RodriguezSousa.ANEXT.Halloween")
+    except Exception as exc:
+        logger.info("Não foi possível definir o AppUserModelID da Edição Halloween: %r", exc)
+
+
 def main():
     logger.info("ANEXT iniciado.")
     _limpar_zips_temporarios_orfaos(_pasta_executavel())
+    if tema.HALLOWEEN:
+        _identidade_propria_na_barra_de_tarefas()
     root = ttk.Window(themename="litera", iconphoto=None)
     root.report_callback_exception = _registrar_erro_callback
     try:
