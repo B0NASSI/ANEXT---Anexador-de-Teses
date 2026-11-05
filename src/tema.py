@@ -25,7 +25,7 @@ NOME_TEMA = "divisorpdf"
 #   NAV_DIVISOR linha sutil acima do rodapé da sidebar
 #   ESCALA     trilho dos controles deslizantes (Padronizar tabela)
 PALETA_NORMAL = {
-    "PRIMARIA": "#2D315F",        # azul-marinho
+    "PRIMARIA": "#071233",        # azul-marinho do logo (mesmo do tema compartilhado _shared/tema_rs.py)
     "SECUNDARIA": "#D3782A",      # laranja
     "FUNDO": "#FFFFFF",
     "FUNDO_SUAVE": "#EEF0F5",
@@ -35,10 +35,10 @@ PALETA_NORMAL = {
     "ERRO": "#C00000",
     "AJUDA": "#6B7085",
     "AVISO": "#8A5A00",
-    "NAV_ATIVO": "#3B4070",
+    "NAV_ATIVO": "#1B2A52",
     "NAV_TEXTO": "#C9CCE0",
     "NAV_ICONE": "#7FA8FF",
-    "NAV_DIVISOR": "#454A7D",
+    "NAV_DIVISOR": "#2C3A66",
     "ESCALA": "#6870A4",
 }
 
