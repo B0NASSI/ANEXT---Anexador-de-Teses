@@ -301,10 +301,10 @@ def _clonar_altura_linha(origem_row, destino_row) -> None:
 # ── Catálogo de larguras oficiais (TABELAS.docx) ──────────────────────────
 #
 # TABELAS.docx (na pasta modelo/) traz uma tabela-exemplo de cada tipo de
-# tese, com as larguras de coluna oficiais do escritório. Na geração, o
-# tipo da tabela importada é identificado pelos cabeçalhos e as larguras
-# oficiais são aplicadas — as larguras do arquivo importado variam de
-# usuário para usuário e por isso são ignoradas quando há tipo catalogado.
+# tese, com as larguras de coluna oficiais do escritório. Só é usado pra
+# tabela colada como TEXTO (sem larguras próprias): tabela colada com
+# formatação mantém sempre as larguras que a equipe definiu nela (ver
+# construir_tabela) — sobrescrever isso deixava tabelas grandes estranhas.
 
 _CATALOGO_TABELAS: dict = {}
 
@@ -368,6 +368,16 @@ def _larguras_do_catalogo(cabecalhos: list[str]) -> list[int] | None:
     else:
         visuais = list(cabecalhos)
     return _CATALOGO_TABELAS.get((_chave_cabecalhos(visuais), len(cabecalhos)))
+
+
+def _larguras_da_grade(tabela_word) -> list[int] | None:
+    """Larguras (twips) das colunas da grade de uma tabela do Word, ou None
+    se a grade não tiver largura definida em todas as colunas."""
+    grade = tabela_word._tbl.find(qn("w:tblGrid"))
+    if grade is None:
+        return None
+    larguras = [int(c.get(qn("w:w")) or 0) for c in grade.findall(qn("w:gridCol"))]
+    return larguras if larguras and all(larguras) else None
 
 
 def _aplicar_larguras_twips(tabela, larguras: list[int]) -> None:
@@ -893,14 +903,23 @@ def construir_tabela(doc: Document, cabecalhos: list[str], linhas_dados: list[li
         tabela = _construir_tabela_reconstruida(doc, cabecalhos, linhas_dados, indice_nome,
                                                 tabela_referencia)
 
-    if larguras_colunas:
-        _aplicar_larguras_colunas(doc, tabela, larguras_colunas)
-
-    # larguras oficiais do TABELAS.docx têm prioridade: as larguras do
-    # arquivo importado variam de usuário para usuário
-    larguras_oficiais = _larguras_do_catalogo(cabecalhos)
-    if larguras_oficiais:
-        _aplicar_larguras_twips(tabela, larguras_oficiais)
+    larguras_origem = _larguras_da_grade(tabela_referencia) if tabela_referencia is not None else None
+    if larguras_origem:
+        # tabela colada com formatação: as larguras de coluna que a equipe
+        # definiu na tabela original valem sempre, em TODAS as tabelas
+        # geradas (completa e de cada segurado) — nada de padrão do programa
+        # nem do TABELAS.docx por cima. Reaplicadas com layout fixo pra o
+        # Word não redimensionar as colunas sozinho em tabelas maiores.
+        _aplicar_larguras_twips(tabela, larguras_origem)
+    else:
+        # sem larguras de origem (texto colado): padrão do programa/da tela
+        # "Padronizar tabela" e, se o tipo de tabela for catalogado, as
+        # larguras oficiais do TABELAS.docx
+        if larguras_colunas:
+            _aplicar_larguras_colunas(doc, tabela, larguras_colunas)
+        larguras_oficiais = _larguras_do_catalogo(cabecalhos)
+        if larguras_oficiais:
+            _aplicar_larguras_twips(tabela, larguras_oficiais)
 
     _centralizar_tabela(tabela)
 

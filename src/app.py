@@ -2313,12 +2313,15 @@ class AplicativoDivisorPDF:
         larguras_colunas = None
         if self.var_origem_tabela_allin.get() == "colar":
             if tabela_referencia is not None:
-                self._log_allin("Estilo da tabela original será replicado (mesclagens, cores, bordas e fontes).")
+                self._log_allin(
+                    "Estilo da tabela original será replicado (mesclagens, cores, bordas, fontes "
+                    "e larguras das colunas)."
+                )
             else:
                 self._log_allin("Texto colado não tem formatação — será aplicado o estilo padrão da capa.")
-            larguras_colunas = self._larguras_para(len(tabela_segurados.cabecalhos))
-            if larguras_colunas:
-                self._log_allin("Larguras de coluna personalizadas serão aplicadas.")
+                larguras_colunas = self._larguras_para(len(tabela_segurados.cabecalhos))
+                if larguras_colunas:
+                    self._log_allin("Larguras de coluna personalizadas serão aplicadas.")
 
         self.colar_allin.compactar()
         self.botao_gerar_allin.config(state=DISABLED)
@@ -2738,7 +2741,9 @@ class AplicativoDivisorPDF:
             except ValueError:
                 label.configure(text="")
                 continue
-            if self._larguras_para(n_colunas):
+            if caixa.tabela_capturada is not None:
+                label.configure(text="✔ Larguras da tabela original mantidas")
+            elif self._larguras_para(n_colunas):
                 label.configure(text=f"✔ Larguras personalizadas ativas ({n_colunas} colunas)")
             else:
                 label.configure(text="")
@@ -2756,6 +2761,16 @@ class AplicativoDivisorPDF:
             return
 
         referencia = caixa.tabela_capturada[1] if caixa.tabela_capturada else None
+        if referencia is not None:
+            messagebox.showinfo(
+                "Padronizar tabela",
+                "Esta tabela foi colada com formatação, então o ANEXT mantém exatamente as "
+                "larguras de coluna da tabela original, em todas as páginas.\n\n"
+                "Pra mudar as larguras, ajuste a tabela no Word e cole de novo. A padronização "
+                "daqui vale só pra tabela colada como texto.",
+                parent=self.root,
+            )
+            return
         n_colunas = len(tabela_segurados.cabecalhos)
         cabecalhos = [c.replace("\n", " ") for c in tabela_segurados.cabecalhos]
         fonte = tkfont.nametofont("TkDefaultFont")
@@ -3303,7 +3318,9 @@ class AplicativoDivisorPDF:
                 if partes:
                     self._log_capas("Seleção personalizada: " + "; ".join(partes) + ".")
 
-            if self.var_origem_tabela_capas.get() == "colar":
+            # tabela colada com formatação mantém as larguras da original (ver
+            # documento.construir_tabela); padrão/"Padronizar" só pra texto colado
+            if self.var_origem_tabela_capas.get() == "colar" and tabela_referencia is None:
                 larguras_colunas = self._larguras_para(len(tabela_segurados.cabecalhos))
                 if larguras_colunas:
                     self._log_capas("Larguras de coluna personalizadas serão aplicadas.")
