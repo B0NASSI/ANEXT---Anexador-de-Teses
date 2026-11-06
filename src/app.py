@@ -17,7 +17,7 @@ import tempfile
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, simpledialog
 
 import pythoncom
 from PIL import Image, ImageTk
@@ -28,6 +28,7 @@ from ttkbootstrap.widgets.scrolled import ScrolledText
 import anexo_fixo
 import halloween
 import documento
+from docx import Document
 import juntar_pdfs
 import log_setup
 from limites_caminho import truncar_para_caminho
@@ -2313,15 +2314,12 @@ class AplicativoDivisorPDF:
         larguras_colunas = None
         if self.var_origem_tabela_allin.get() == "colar":
             if tabela_referencia is not None:
-                self._log_allin(
-                    "Estilo da tabela original será replicado (mesclagens, cores, bordas, fontes "
-                    "e larguras das colunas)."
-                )
+                self._log_allin("Estilo da tabela original será replicado (mesclagens, cores, bordas e fontes).")
             else:
                 self._log_allin("Texto colado não tem formatação — será aplicado o estilo padrão da capa.")
-                larguras_colunas = self._larguras_para(len(tabela_segurados.cabecalhos))
-                if larguras_colunas:
-                    self._log_allin("Larguras de coluna personalizadas serão aplicadas.")
+            larguras_colunas = self._larguras_para(len(tabela_segurados.cabecalhos))
+            if larguras_colunas:
+                self._log_allin("Larguras de coluna personalizadas serão aplicadas.")
 
         self.colar_allin.compactar()
         self.botao_gerar_allin.config(state=DISABLED)
@@ -2715,7 +2713,9 @@ class AplicativoDivisorPDF:
     def _larguras_para(self, n_colunas: int) -> list[float] | None:
         salvas = self._config.get("larguras_tabela_capas", {}).get(str(n_colunas))
         if salvas and len(salvas) == n_colunas:
-            return salvas
+            # salvas pela equipe em "Padronizar tabela": marcadas pra que o
+            # catálogo do TABELAS.docx não passe por cima (ver documento.py)
+            return documento.LargurasDoUsuario(salvas)
         return LARGURAS_PADRAO_CAPAS.get(n_colunas)
 
     def _salvar_larguras(self, n_colunas: int, proporcoes: list[float] | None) -> None:
@@ -2741,9 +2741,7 @@ class AplicativoDivisorPDF:
             except ValueError:
                 label.configure(text="")
                 continue
-            if caixa.tabela_capturada is not None:
-                label.configure(text="✔ Larguras da tabela original mantidas")
-            elif self._larguras_para(n_colunas):
+            if self._larguras_para(n_colunas):
                 label.configure(text=f"✔ Larguras personalizadas ativas ({n_colunas} colunas)")
             else:
                 label.configure(text="")
@@ -2761,16 +2759,6 @@ class AplicativoDivisorPDF:
             return
 
         referencia = caixa.tabela_capturada[1] if caixa.tabela_capturada else None
-        if referencia is not None:
-            messagebox.showinfo(
-                "Padronizar tabela",
-                "Esta tabela foi colada com formatação, então o ANEXT mantém exatamente as "
-                "larguras de coluna da tabela original, em todas as páginas.\n\n"
-                "Pra mudar as larguras, ajuste a tabela no Word e cole de novo. A padronização "
-                "daqui vale só pra tabela colada como texto.",
-                parent=self.root,
-            )
-            return
         n_colunas = len(tabela_segurados.cabecalhos)
         cabecalhos = [c.replace("\n", " ") for c in tabela_segurados.cabecalhos]
         fonte = tkfont.nametofont("TkDefaultFont")
@@ -2797,10 +2785,19 @@ class AplicativoDivisorPDF:
             soma = sum(larguras)
             return [largura / soma for largura in larguras]
 
+        iniciais = list(self._larguras_para(n_colunas) or proporcoes_por_conteudo())
+        # as proporções salvas somam a largura da tabela em relação à área de
+        # texto da página (1.0 = 100%; a do 60 DIAS, por exemplo, ~1.23). Na
+        # tela as colunas trabalham em proporção relativa (soma 1) e a largura
+        # total fica separada, ajustada arrastando as bordas de fora da régua.
+        total_inicial = sum(iniciais) or 1.0
         estado = {
-            "props": self._larguras_para(n_colunas) or proporcoes_por_conteudo(),
-            "renderizando": False,
+            "props": [p / total_inicial for p in iniciais],
+            "total": total_inicial,
         }
+
+        def _proporcoes_finais() -> list[float]:
+            return [p * estado["total"] for p in estado["props"]]
 
         janela = ttk.Toplevel(self.root)
         janela.title("Padronizar tabela")
@@ -2808,40 +2805,19 @@ class AplicativoDivisorPDF:
         janela.resizable(False, False)
         _definir_icone(janela)
 
+        corpo = ttk.Frame(janela, padding=(22, 18, 22, 0))
+        corpo.pack(fill=BOTH, expand=True)
+        ttk.Label(corpo, text="Larguras das colunas", style="Titulo.TLabel").pack(anchor=W)
         ttk.Label(
-            janela, text="Defina a largura de cada coluna (%) e confira na prévia real, gerada com o Word.",
-            font=("Segoe UI", 10, "bold"),
-        ).pack(anchor=W, padx=18, pady=(16, 2))
-        ttk.Label(
-            janela, text="As proporções valem para todas as capas geradas ao colar a tabela e ficam "
-                         "salvas para as próximas vezes.",
-            bootstyle="secondary", font=("Segoe UI", 9),
-        ).pack(anchor=W, padx=18, pady=(0, 10))
-
-        # ── controles: um por coluna visual ──
-        ajustes = ttk.Labelframe(janela, text=" Largura de cada coluna (%) ", padding=(12, 8))
-        ajustes.pack(fill=X, padx=18)
-        vars_percent = [tk.DoubleVar(value=0) for _ in grupos_visuais]
-        sincronizando = {"ativo": False}
+            corpo, style="Descricao.TLabel",
+            text="Arraste as divisas entre as colunas; as bordas de fora alargam só a primeira ou a última "
+                 "coluna. Dois cliques numa coluna pra digitar a % exata. Vale pra todas as capas e fica salvo.",
+        ).pack(anchor=W, pady=(2, 12))
 
         def _percentuais_visuais() -> list[float]:
             return [sum(estado["props"][i] for i in grupo) for grupo in grupos_visuais]
 
-        def _atualizar_spins():
-            sincronizando["ativo"] = True
-            try:
-                for var, peso in zip(vars_percent, _percentuais_visuais()):
-                    var.set(round(peso * 100, 1))
-            finally:
-                sincronizando["ativo"] = False
-
-        def spin_alterado(*_args):
-            if sincronizando["ativo"]:
-                return
-            try:
-                pesos = [max(0.5, float(var.get())) for var in vars_percent]
-            except (tk.TclError, ValueError):
-                return
+        def _definir_visuais(pesos: list[float]) -> None:
             soma = sum(pesos)
             novos = list(estado["props"])
             for grupo, peso in zip(grupos_visuais, pesos):
@@ -2851,77 +2827,354 @@ class AplicativoDivisorPDF:
                     novos[i] = (peso / soma) * (estado["props"][i] / atual_grupo)
             estado["props"] = novos
 
-        for coluna_visual, grupo in enumerate(grupos_visuais):
-            bloco = ttk.Frame(ajustes)
-            bloco.grid(row=0, column=coluna_visual, padx=6, pady=2)
-            titulo = cabecalhos[grupo[0]]
-            titulo_curto = titulo if len(titulo) <= 18 else titulo[:17] + "…"
-            ttk.Label(bloco, text=titulo_curto, font=("Segoe UI", 8)).pack(anchor=W)
-            spin = ttk.Spinbox(
-                bloco, from_=1, to=90, increment=1, width=6,
-                textvariable=vars_percent[coluna_visual], command=spin_alterado,
-            )
-            spin.pack()
-            spin.bind("<KeyRelease>", spin_alterado)
+        # ── régua: a página em escala, com a tabela centralizada nela. As
+        # colunas aparecem com o maior texto de cada uma, na fonte e na escala
+        # da tabela gerada, quebrando linha como o Word quebraria ──
+        LARGURA_REGUA = 1000
+        MINIMO = 0.02  # nenhuma coluna fica com menos de 2%
+        TOTAL_MIN, TOTAL_MAX = 0.5, 1.4  # largura da tabela: de 50% a 140% da área de texto
+        AREA_TEXTO_PX = (LARGURA_REGUA - 24) / TOTAL_MAX  # 100% da área de texto
+        CENTRO = LARGURA_REGUA / 2
+        COR_CABECALHO = "#" + documento.COR_TABELA_DESTAQUE
+        COR_LINHA = "#9AA2BD"
+        fonte_cabecalho = tkfont.Font(family="Segoe UI", size=8, weight="bold")
+        fonte_rodape = tkfont.Font(family="Segoe UI", size=8)
+        fonte_margem = tkfont.Font(family="Segoe UI", size=7)
 
-        # ── ajustes rápidos + atualizar prévia ──
-        rapidos = ttk.Frame(janela, padding=(18, 10, 18, 0))
-        rapidos.pack(fill=X)
+        secao = Document(str(MODELO_CAPAS)).sections[0]
+        util_twips = (secao.page_width - secao.left_margin - secao.right_margin) / 635
+        px_por_twip = AREA_TEXTO_PX / util_twips
+        familia, tamanho_pt = documento.fonte_da_tabela(referencia)
+        if familia not in tkfont.families(janela):
+            familia = "Segoe UI"  # fonte da tabela não instalada aqui (o Word também troca)
+        fonte_amostra = tkfont.Font(family=familia, size=-max(6, round(tamanho_pt * 20 * px_por_twip)))
+        folga_celula = 2 * 57 * px_por_twip  # margem interna esquerda + direita (ver documento.py)
+        amostras = []
+        for i in range(n_colunas):
+            valores = [linha[i].strip() for linha in tabela_segurados.linhas[:200] if i < len(linha)]
+            amostras.append(max(valores, key=len, default=""))
 
-        def ajustar_conteudo():
-            estado["props"] = proporcoes_por_conteudo()
-            _atualizar_spins()
+        def _quebrar(texto: str, largura: float) -> list[str]:
+            """Quebra como o Word: por palavra; palavra que não cabe sozinha
+            é cortada no meio (é o "202/1" que aparece em coluna estreita)."""
+            linhas = []
+            for paragrafo in texto.split("\n"):
+                atual = ""
+                for palavra in paragrafo.split(" "):
+                    tentativa = f"{atual} {palavra}" if atual else palavra
+                    if fonte_amostra.measure(tentativa) <= largura:
+                        atual = tentativa
+                        continue
+                    if atual:
+                        linhas.append(atual)
+                    atual = ""
+                    for letra in palavra:
+                        if atual and fonte_amostra.measure(atual + letra) > largura:
+                            linhas.append(atual)
+                            atual = ""
+                        atual += letra
+                linhas.append(atual)
+            return linhas or [""]
+
+        def _cortar(texto: str, largura: float, fonte) -> str:
+            if fonte.measure(texto) <= largura:
+                return texto
+            while texto and fonte.measure(texto + "…") > largura:
+                texto = texto[:-1]
+            return texto + "…" if texto else ""
+
+        cartao_regua = tk.Frame(corpo, background="white", highlightthickness=1,
+                                highlightbackground=tema.COR_BORDA)
+        cartao_regua.pack(fill=X)
+        regua = tk.Canvas(cartao_regua, width=LARGURA_REGUA, height=120, background="white",
+                          highlightthickness=0, borderwidth=0)
+        regua.pack(padx=6, pady=(6, 2))
+        resumo = tk.Frame(cartao_regua, background="white")
+        resumo.pack(fill=X, padx=12, pady=(0, 8))
+        rotulo_largura = tk.Label(resumo, background="white", foreground=tema.COR_AJUDA, font=("Segoe UI", 9))
+        rotulo_largura.pack(side=LEFT)
+        rotulo_quebra = tk.Label(resumo, background="white", font=("Segoe UI", 9, "bold"))
+        rotulo_quebra.pack(side=RIGHT)
+
+        interacao = {"arrastando": None, "sobre": None}
+
+        def _limites_tabela() -> tuple[float, float]:
+            largura = estado["total"] * AREA_TEXTO_PX
+            return CENTRO - largura / 2, CENTRO + largura / 2  # a tabela sai centralizada
+
+        def _bordas(pesos: list[float]) -> list[float]:
+            esquerda, direita = _limites_tabela()
+            soma = sum(pesos) or 1
+            xs, acumulado = [esquerda], 0.0
+            for peso in pesos:
+                acumulado += peso / soma
+                xs.append(esquerda + acumulado * (direita - esquerda))
+            return xs
+
+        def _bordas_x() -> list[float]:
+            return _bordas(_percentuais_visuais())
+
+        def _bordas_grade() -> list[float]:
+            """Bordas de cada coluna da GRADE (sub-colunas de mesclagem inclusas)."""
+            return _bordas(estado["props"])
+
+        def _alca(x: float, y: float, altura: float, largura: float, cor: str) -> None:
+            r = largura / 2
+            regua.create_oval(x - r, y - altura / 2, x + r, y - altura / 2 + largura, fill=cor, outline=cor)
+            regua.create_oval(x - r, y + altura / 2 - largura, x + r, y + altura / 2, fill=cor, outline=cor)
+            regua.create_rectangle(x - r, y - altura / 2 + r, x + r, y + altura / 2 - r, fill=cor, outline=cor)
+
+        def desenhar():
+            regua.delete("all")
+            xs, xs_grade = _bordas_x(), _bordas_grade()
+            altura_linha = fonte_amostra.metrics("linespace")
+            quebras = [
+                _quebrar(amostras[i], max(4, xs_grade[i + 1] - xs_grade[i] - folga_celula))
+                for i in range(n_colunas)
+            ]
+            topo, alto_cabecalho = 16, 26
+            topo_corpo = topo + alto_cabecalho
+            base_corpo = topo_corpo + max(len(q) for q in quebras) * altura_linha + 10
+            altura = base_corpo + 22
+            regua.configure(height=altura)
+
+            # página: fora da área de texto (além das margens) em cinza
+            margem_esq, margem_dir = CENTRO - AREA_TEXTO_PX / 2, CENTRO + AREA_TEXTO_PX / 2
+            regua.create_rectangle(0, 0, margem_esq, altura, fill="#F3F4F8", outline="")
+            regua.create_rectangle(margem_dir, 0, LARGURA_REGUA, altura, fill="#F3F4F8", outline="")
+            for x in (margem_esq, margem_dir):
+                regua.create_line(x, 0, x, altura, fill=COR_LINHA, dash=(2, 3))
+                regua.create_text(x, 7, text="margem", font=fonte_margem, fill=tema.COR_AJUDA)
+
+            esquerda, direita = xs[0], xs[-1]
+            regua.create_rectangle(esquerda, topo, direita, base_corpo, fill="white", outline="")
+            regua.create_rectangle(esquerda, topo, direita, topo_corpo, fill=COR_CABECALHO, outline="")
+            colunas_quebrando = []
+            for i, (grupo, peso) in enumerate(zip(grupos_visuais, _percentuais_visuais())):
+                x0, x1 = xs[i], xs[i + 1]
+                meio, espaco = (x0 + x1) / 2, x1 - x0 - 6
+                regua.create_text(meio, topo + alto_cabecalho / 2,
+                                  text=_cortar(cabecalhos[grupo[0]], espaco, fonte_cabecalho),
+                                  font=fonte_cabecalho, fill=tema.COR_TEXTO)
+                quebrou = any(len(quebras[c]) > 1 for c in grupo)
+                if quebrou:
+                    # coluna sem título (2ª parte de "Vigências do FAP" em texto
+                    # colado) entra com o nome da anterior, uma vez só
+                    nome = cabecalhos[grupo[0]] or next(
+                        (cabecalhos[j] for j in range(grupo[0] - 1, -1, -1) if cabecalhos[j]), "sem título")
+                    if nome not in colunas_quebrando:
+                        colunas_quebrando.append(nome)
+                for c in grupo:
+                    cx0, cx1 = xs_grade[c], xs_grade[c + 1]
+                    if c != grupo[0]:
+                        # sub-coluna de mesclagem (ex.: 2021 | 2022 sob "Vigências"):
+                        # divisa arrastável só entre as duas, alça no meio dos dados
+                        ativa = ("sub", c) in (interacao["arrastando"], interacao["sobre"])
+                        cor_sub = tema.COR_SECUNDARIA if ativa else COR_LINHA
+                        regua.create_line(cx0, topo_corpo, cx0, base_corpo, fill=cor_sub, width=2 if ativa else 1)
+                        _alca(cx0, (topo_corpo + base_corpo) / 2, 14, 6, cor_sub)
+                    cor = tema.COR_SECUNDARIA if len(quebras[c]) > 1 else tema.COR_TEXTO
+                    for n, linha in enumerate(quebras[c]):
+                        regua.create_text((cx0 + cx1) / 2, topo_corpo + 5 + n * altura_linha, text=linha,
+                                          font=fonte_amostra, fill=cor, anchor="n")
+                rotulo = f"{peso * 100:.1f}%" + ("  ↵" if quebrou else "")
+                regua.create_text(meio, base_corpo + 11, text=_cortar(rotulo, espaco + 4, fonte_rodape),
+                                  font=fonte_rodape, fill=tema.COR_SECUNDARIA if quebrou else tema.COR_AJUDA)
+
+            # divisas internas: linha fina + alça no cabeçalho
+            for k, x in enumerate(xs[1:-1]):
+                ativa = k in (interacao["arrastando"], interacao["sobre"])
+                regua.create_line(x, topo, x, base_corpo, fill=tema.COR_SECUNDARIA if ativa else COR_LINHA,
+                                  width=2 if ativa else 1)
+                _alca(x, topo + alto_cabecalho / 2, 16, 6, tema.COR_SECUNDARIA if ativa else tema.COR_PRIMARIA)
+            # contorno e bordas de fora (largura da tabela inteira)
+            regua.create_rectangle(esquerda, topo, direita, base_corpo, outline=tema.COR_PRIMARIA)
+            for lado, x in (("esq", esquerda), ("dir", direita)):
+                ativa = lado in (interacao["arrastando"], interacao["sobre"])
+                _alca(x, (topo + base_corpo) / 2, 34, 8, tema.COR_SECUNDARIA if ativa else tema.COR_PRIMARIA)
+
+            passou = " — passa das margens da página" if estado["total"] > 1.005 else ""
+            rotulo_largura.configure(text=f"Largura da tabela: {estado['total'] * 100:.0f}% da área de texto{passou}")
+            if colunas_quebrando:
+                nomes = ", ".join(colunas_quebrando)
+                rotulo_quebra.configure(
+                    text=_cortar(f"↵ Quebram linha: {nomes}", 520, tkfont.Font(family="Segoe UI", size=9, weight="bold")),
+                    foreground=tema.COR_SECUNDARIA,
+                )
+            else:
+                rotulo_quebra.configure(text="✔ Tudo cabe em uma linha", foreground=tema.COR_SUCESSO)
+
+        def _alvo(x: float):
+            """A divisa MAIS PRÓXIMA do mouse (dentro de ~9px): índice da divisa
+            entre colunas, "esq"/"dir" pras bordas de fora, ("sub", c) pra
+            divisa entre sub-colunas de uma mesclagem — ou None."""
+            xs, xs_grade = _bordas_x(), _bordas_grade()
+            candidatos = [("esq", xs[0]), ("dir", xs[-1])]
+            candidatos += [(k, bx) for k, bx in enumerate(xs[1:-1])]
+            candidatos += [(("sub", c), xs_grade[c]) for grupo in grupos_visuais for c in grupo[1:]]
+            alvo, distancia = min(candidatos, key=lambda par: abs(x - par[1]))
+            return alvo if abs(x - distancia) <= 9 else None
+
+        def _mouse_movendo(evt):
+            if interacao["arrastando"] is not None:
+                return
+            alvo = _alvo(evt.x)
+            regua.configure(cursor="sb_h_double_arrow" if alvo is not None else "")
+            if alvo != interacao["sobre"]:
+                interacao["sobre"] = alvo
+                desenhar()
+
+        def _mouse_saiu(_evt):
+            if interacao["arrastando"] is None and interacao["sobre"] is not None:
+                interacao["sobre"] = None
+                desenhar()
+
+        def _mouse_apertou(evt):
+            interacao["arrastando"] = _alvo(evt.x)
+            desenhar()
+
+        def _mouse_arrastando(evt):
+            k = interacao["arrastando"]
+            if k is None:
+                return
+            if k in ("esq", "dir"):
+                # borda de fora: muda SÓ a coluna da ponta (a 1ª ou a última),
+                # como no Word; a tabela cresce/encolhe exatamente o que essa
+                # coluna mudou e continua centralizada na página (como sai no PDF)
+                metade = abs(evt.x - CENTRO)
+                novo_total = min(max(2 * metade / AREA_TEXTO_PX, TOTAL_MIN), TOTAL_MAX)
+                absolutas = [p * estado["total"] for p in _percentuais_visuais()]
+                ponta = 0 if k == "esq" else -1
+                absolutas[ponta] = max(absolutas[ponta] + novo_total - estado["total"], MINIMO)
+                estado["total"] = sum(absolutas)
+                _definir_visuais(absolutas)
+            elif isinstance(k, tuple):
+                # entre sub-colunas: só as duas trocam largura entre si
+                c = k[1]
+                xs_grade = _bordas_grade()
+                x0, x1 = xs_grade[c - 1], xs_grade[c + 1]
+                par = estado["props"][c - 1] + estado["props"][c]
+                fracao = min(max((evt.x - x0) / (x1 - x0), MINIMO / par), 1 - MINIMO / par)
+                props = list(estado["props"])
+                props[c - 1], props[c] = par * fracao, par * (1 - fracao)
+                estado["props"] = props
+            else:
+                esquerda, direita = _limites_tabela()
+                pesos = _percentuais_visuais()
+                inicio = sum(pesos[:k])                 # onde começa a coluna da esquerda
+                par = pesos[k] + pesos[k + 1]           # o par só troca largura entre si
+                posicao = (evt.x - esquerda) / (direita - esquerda) - inicio
+                pesos[k] = min(max(posicao, MINIMO), par - MINIMO)
+                pesos[k + 1] = par - pesos[k]
+                _definir_visuais(pesos)
+            desenhar()
+
+        def _mouse_soltou(_evt):
+            if interacao["arrastando"] is None:
+                return
+            interacao["arrastando"] = None
+            desenhar()
             renderizar()
 
-        def distribuir_igual():
-            estado["props"] = [1 / n_colunas] * n_colunas
-            _atualizar_spins()
+        def _duplo_clique(evt):
+            xs = _bordas_x()
+            coluna = next((i for i in range(len(grupos_visuais)) if xs[i] < evt.x < xs[i + 1]), None)
+            if coluna is None or _alvo(evt.x) is not None:
+                return
+            pesos = _percentuais_visuais()
+            valor = simpledialog.askfloat(
+                "Largura da coluna",
+                f"Largura de “{cabecalhos[grupos_visuais[coluna][0]]}” (% da tabela):",
+                initialvalue=round(pesos[coluna] * 100, 1), minvalue=MINIMO * 100,
+                maxvalue=100 - MINIMO * 100 * (len(pesos) - 1), parent=janela,
+            )
+            if valor is None:
+                return
+            novo, resto_antigo = valor / 100, (1 - pesos[coluna]) or 1
+            # as demais colunas dividem o que sobrou, mantendo a proporção entre si
+            pesos = [novo if i == coluna else p * (1 - novo) / resto_antigo for i, p in enumerate(pesos)]
+            _definir_visuais(pesos)
+            desenhar()
+            renderizar()
+
+        regua.bind("<Motion>", _mouse_movendo)
+        regua.bind("<Leave>", _mouse_saiu)
+        regua.bind("<ButtonPress-1>", _mouse_apertou)
+        regua.bind("<B1-Motion>", _mouse_arrastando)
+        regua.bind("<ButtonRelease-1>", _mouse_soltou)
+        regua.bind("<Double-Button-1>", _duplo_clique)
+
+        # ── ajustes rápidos (a prévia se atualiza sozinha a cada mudança) ──
+        rapidos = ttk.Frame(corpo, padding=(0, 10, 0, 0))
+        rapidos.pack(fill=X)
+
+        def _redefinir(props: list[float]) -> None:
+            estado["props"] = props
+            estado["total"] = 1.0
+            desenhar()
+            renderizar()
+
+        def largura_da_pagina():
+            estado["total"] = 1.0
+            desenhar()
             renderizar()
 
         ttk.Button(rapidos, text="📐  Ajustar ao conteúdo", bootstyle="light",
-                   command=ajustar_conteudo).pack(side=LEFT)
+                   command=lambda: _redefinir(proporcoes_por_conteudo())).pack(side=LEFT)
         ttk.Button(rapidos, text="▤  Distribuir igualmente", bootstyle="light",
-                   command=distribuir_igual).pack(side=LEFT, padx=(8, 0))
-        botao_previa = ttk.Button(rapidos, text="🔄  Atualizar prévia", bootstyle="secondary",
-                                  command=lambda: renderizar())
-        botao_previa.pack(side=RIGHT)
+                   command=lambda: _redefinir([1 / n_colunas] * n_colunas)).pack(side=LEFT, padx=(8, 0))
+        ttk.Button(rapidos, text="↔  Largura da página (100%)", bootstyle="light",
+                   command=largura_da_pagina).pack(side=LEFT, padx=(8, 0))
 
         # ── prévia real (renderizada com o Word) ──
-        moldura_previa = ttk.Labelframe(janela, text=" Prévia (idêntica ao PDF final) ", padding=8)
-        moldura_previa.pack(fill=BOTH, expand=True, padx=18, pady=(10, 0))
-        label_previa = tk.Label(moldura_previa, text="Gerando prévia com o Word...",
-                                background="white", height=18, anchor="center")
-        label_previa.pack(fill=BOTH, expand=True)
+        titulo_previa = ttk.Frame(corpo)
+        titulo_previa.pack(fill=X, pady=(16, 4))
+        ttk.Label(titulo_previa, text="Prévia (idêntica ao PDF final)", foreground=tema.COR_PRIMARIA,
+                  font=("Segoe UI", 10, "bold")).pack(side=LEFT)
+        status_previa = ttk.Label(titulo_previa, foreground=tema.COR_AJUDA, font=("Segoe UI", 9))
+        status_previa.pack(side=LEFT, padx=(8, 0))
+        cartao_previa = tk.Frame(corpo, background="white", highlightthickness=1,
+                                 highlightbackground=tema.COR_BORDA)
+        cartao_previa.pack(fill=BOTH, expand=True)
+        label_previa = tk.Label(cartao_previa, text="Gerando prévia com o Word...", background="white",
+                                foreground=tema.COR_AJUDA, font=("Segoe UI", 9), height=6, anchor="center")
+        label_previa.pack(fill=BOTH, expand=True, padx=4, pady=4)
+
+        # Prévia num único Word aberto enquanto a tela estiver aberta (abrir um
+        # Word novo a cada prévia levava vários segundos por atualização). O
+        # Word só pode ser usado pela thread que o criou, então uma thread
+        # dedicada gera as prévias; se chegam vários pedidos seguidos, só o
+        # mais recente é gerado.
+        pedido = {"props": None, "titulo": "", "fim": False}
+        sinal = threading.Event()
+        # a thread não mexe na interface: deixa o resultado aqui e a janela
+        # confere de tempos em tempos (Tk só pode ser usado pela thread principal)
+        resultado = {"png": None, "erro": None}
+        trava_resultado = threading.Lock()
 
         def renderizar():
-            if estado["renderizando"]:
-                return
-            estado["renderizando"] = True
-            botao_previa.configure(state=DISABLED)
-            label_previa.configure(text="Gerando prévia com o Word...", image="")
-            props = list(estado["props"])
-            threading.Thread(target=_render_worker, args=(props,), daemon=True).start()
+            # mesma regra da geração depois de salvar: o catálogo não passa por cima
+            pedido["props"] = documento.LargurasDoUsuario(_proporcoes_finais())
+            pedido["titulo"] = var_titulo.get().strip() or "Prévia da tabela"
+            status_previa.configure(text="atualizando…")
+            if not getattr(janela, "_imagem_previa", None):
+                label_previa.configure(text="Gerando prévia com o Word...")
+            sinal.set()
 
-        def _render_worker(props):
-            pythoncom.CoInitialize()
+        def _gerar_png(conversor, props, titulo) -> bytes:
+            import fitz
+
             pasta_tmp = Path(tempfile.mkdtemp(prefix="previa_capas_"))
             try:
-                import fitz
-
                 doc = documento.montar_tabela_completa(
-                    str(MODELO_CAPAS), var_titulo.get().strip() or "Prévia da tabela",
+                    str(MODELO_CAPAS), titulo,
                     tabela_segurados.cabecalhos, tabela_segurados.linhas[:12],
                     tabela_segurados.indice_nome, referencia, props,
                 )
                 docx_tmp = pasta_tmp / "previa.docx"
                 pdf_tmp = pasta_tmp / "previa.pdf"
                 doc.save(str(docx_tmp))
-                conversor = ConversorPDF()
-                try:
-                    conversor.converter(docx_tmp, pdf_tmp)
-                finally:
-                    conversor.fechar()
-
+                conversor.converter(docx_tmp, pdf_tmp)
                 with fitz.open(pdf_tmp) as pdf:
                     pagina = pdf[0]
                     blocos = [b for b in pagina.get_text("blocks") if b[4].strip()]
@@ -2930,54 +3183,118 @@ class AplicativoDivisorPDF:
                         y0 = max(0, min(b[1] for b in blocos) - 16)
                         y1 = min(pagina.rect.height, max(b[3] for b in blocos) + 16)
                         clip = fitz.Rect(0, y0, pagina.rect.width, y1)
-                    pix = pagina.get_pixmap(dpi=120, clip=clip)
-                    png = pix.tobytes("png")
-                self.root.after(0, _mostrar_previa, png)
-            except ConversorPDFIndisponivel as exc:
-                self.root.after(0, _previa_falhou, str(exc))
-            except Exception as exc:
-                self.root.after(0, _previa_falhou, _mensagem_erro_amigavel(exc))
+                    return pagina.get_pixmap(dpi=120, clip=clip).tobytes("png")
             finally:
                 shutil.rmtree(pasta_tmp, ignore_errors=True)
-                estado["renderizando"] = False
+
+        def _thread_previa():
+            pythoncom.CoInitialize()
+            conversor = None
+            try:
+                while True:
+                    sinal.wait()
+                    sinal.clear()
+                    if pedido["fim"]:
+                        return
+                    props, titulo = pedido["props"], pedido["titulo"]
+                    try:
+                        if conversor is None:
+                            conversor = ConversorPDF()
+                        png = _gerar_png(conversor, props, titulo)
+                    except ConversorPDFIndisponivel as exc:
+                        with trava_resultado:
+                            resultado["erro"] = str(exc)
+                        continue
+                    except Exception as exc:
+                        # Word pode ter sido fechado por fora: na próxima, abre outro
+                        if conversor is not None:
+                            try:
+                                conversor.fechar()
+                            except Exception:
+                                pass
+                            conversor = None
+                        with trava_resultado:
+                            resultado["erro"] = _mensagem_erro_amigavel(exc)
+                        continue
+                    if not sinal.is_set():  # já tem pedido mais novo? essa nem mostra
+                        with trava_resultado:
+                            resultado["png"] = png
+            finally:
+                if conversor is not None:
+                    try:
+                        conversor.fechar()
+                    except Exception:
+                        pass
                 pythoncom.CoUninitialize()
+
+        def _encerrar_previa(evt):
+            if evt.widget is janela:
+                pedido["fim"] = True
+                sinal.set()
+
+        def _conferir_resultado():
+            if not janela.winfo_exists():
+                return
+            with trava_resultado:
+                png, erro = resultado["png"], resultado["erro"]
+                resultado["png"] = resultado["erro"] = None
+            if png is not None:
+                _mostrar_previa(png)
+            elif erro is not None:
+                _previa_falhou(erro)
+            janela.after(100, _conferir_resultado)
+
+        janela.bind("<Destroy>", _encerrar_previa, add="+")
+        threading.Thread(target=_thread_previa, daemon=True).start()
+        janela.after(100, _conferir_resultado)
 
         def _mostrar_previa(png_bytes):
             if not janela.winfo_exists():
                 return
             imagem = Image.open(io.BytesIO(png_bytes))
-            LARGURA_MAX, ALTURA_MAX = 940, 420
+            # a prévia ocupa só o que sobra na tela: tabela grande não pode
+            # empurrar os botões (Cancelar/Aplicar) pra fora do monitor
+            janela.update_idletasks()
+            resto_da_janela = janela.winfo_reqheight() - label_previa.winfo_reqheight()
+            altura_livre = janela.winfo_screenheight() - 110 - resto_da_janela  # barra de tarefas + título + folga
+            LARGURA_MAX, ALTURA_MAX = LARGURA_REGUA, max(160, min(420, altura_livre))
             escala = min(LARGURA_MAX / imagem.width, ALTURA_MAX / imagem.height, 1.0)
             imagem = imagem.resize((int(imagem.width * escala), int(imagem.height * escala)), Image.LANCZOS)
             janela._imagem_previa = ImageTk.PhotoImage(imagem)
             label_previa.configure(image=janela._imagem_previa, text="", height=imagem.height)
-            botao_previa.configure(state=NORMAL)
+            status_previa.configure(text="")
             janela.update_idletasks()
-            janela.geometry(f"{janela.winfo_reqwidth()}x{janela.winfo_reqheight()}")
+            largura, altura = janela.winfo_reqwidth(), janela.winfo_reqheight()
+            # se ainda passar do fim da tela, a janela sobe até caber inteira
+            # 100 = barra de título da janela + barra de tarefas do Windows + folga
+            y = max(0, min(janela.winfo_y(), janela.winfo_screenheight() - 100 - altura))
+            janela.geometry(f"{largura}x{altura}+{janela.winfo_x()}+{y}")
 
         def _previa_falhou(mensagem):
             if not janela.winfo_exists():
                 return
             label_previa.configure(text=f"Não foi possível gerar a prévia:\n{mensagem}", image="")
-            botao_previa.configure(state=NORMAL)
+            janela._imagem_previa = None
+            status_previa.configure(text="")
 
         # ── rodapé ──
-        rodape = ttk.Frame(janela, padding=18)
+        ttk.Separator(janela).pack(fill=X, pady=(18, 0))
+        rodape = ttk.Frame(janela, padding=(22, 14))
         rodape.pack(fill=X)
 
         def aplicar():
-            self._salvar_larguras(n_colunas, list(estado["props"]))
+            self._salvar_larguras(n_colunas, _proporcoes_finais())
             janela.destroy()
 
         def restaurar():
             self._salvar_larguras(n_colunas, None)
             janela.destroy()
 
-        ttk.Button(rodape, text="🧹  Restaurar padrão", command=restaurar, bootstyle="danger-outline").pack(side=LEFT)
+        ttk.Button(rodape, text="🧹  Restaurar padrão", command=restaurar, bootstyle="danger-link").pack(side=LEFT)
         ttk.Button(rodape, text="Aplicar", command=aplicar, bootstyle="secondary", width=14).pack(side=RIGHT)
         ttk.Button(rodape, text="Cancelar", command=janela.destroy, bootstyle="light", width=14).pack(side=RIGHT, padx=(0, 10))
 
-        _atualizar_spins()
+        desenhar()
         janela.update_idletasks()
         largura, altura = janela.winfo_reqwidth(), janela.winfo_reqheight()
         _posicionar_sobre_janela(self.root, janela, largura, altura)
@@ -3318,9 +3635,7 @@ class AplicativoDivisorPDF:
                 if partes:
                     self._log_capas("Seleção personalizada: " + "; ".join(partes) + ".")
 
-            # tabela colada com formatação mantém as larguras da original (ver
-            # documento.construir_tabela); padrão/"Padronizar" só pra texto colado
-            if self.var_origem_tabela_capas.get() == "colar" and tabela_referencia is None:
+            if self.var_origem_tabela_capas.get() == "colar":
                 larguras_colunas = self._larguras_para(len(tabela_segurados.cabecalhos))
                 if larguras_colunas:
                     self._log_capas("Larguras de coluna personalizadas serão aplicadas.")

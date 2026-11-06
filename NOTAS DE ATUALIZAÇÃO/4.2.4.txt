@@ -1,0 +1,3 @@
+- Nova tela de padronização das tabelas: ajuste das colunas com o mouse e
+  prévia mais rápida.
+- Correção nas cores e larguras das tabelas.

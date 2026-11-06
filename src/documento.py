@@ -24,7 +24,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt
-from docx.table import Table
+from docx.table import Table, _Cell
 from docx.text.paragraph import Paragraph
 
 MARCADOR_TITULO = "{{TITULO}}"
@@ -33,6 +33,9 @@ MARCADOR_TOPICO = "{{TOPICO}}"
 MARCADOR_TABELA = "{{TABELA}}"
 
 COR_TABELA_DESTAQUE = "D5DCE4"
+# fundo das células destacadas no corpo da tabela (ex.: a linha do benefício
+# contestado) — "Azul, Ênfase 1, Mais Claro 80%" do Word
+COR_LINHA_DESTACADA = "D9E2F3"
 
 
 # ── Localização e substituição de texto em qualquer parágrafo do corpo ───
@@ -270,9 +273,63 @@ def _sombrear_celula(celula, cor_hex: str) -> None:
     if shd is None:
         shd = tcPr.makeelement(qn("w:shd"), {})
         tcPr.append(shd)
+    # cor de tema (themeFill...) tem prioridade sobre fill no Word: sai,
+    # senão a cor da tabela de origem continuaria valendo
+    for atributo in ("w:themeFill", "w:themeFillTint", "w:themeFillShade", "w:themeColor", "w:themeTint", "w:themeShade"):
+        shd.attrib.pop(qn(atributo), None)
     shd.set(qn("w:val"), "clear")
     shd.set(qn("w:color"), "auto")
     shd.set(qn("w:fill"), cor_hex)
+
+
+def fonte_da_tabela(tabela_referencia=None) -> tuple[str, float]:
+    """(família, tamanho em pt) do texto do corpo da tabela gerada — pra a
+    régua da tela "Padronizar tabela" simular a quebra de linha. Tabela
+    colada com formatação: a fonte da 1ª linha de dados da original. Texto
+    colado: a padrão do modelo (tema "Calibri", 11 pt)."""
+    if tabela_referencia is not None:
+        trs = tabela_referencia._tbl.findall(qn("w:tr"))
+        for tr in trs[1:] + trs[:1]:
+            for r in tr.iter(qn("w:r")):
+                rpr = r.find(qn("w:rPr"))
+                fontes = rpr.find(qn("w:rFonts")) if rpr is not None else None
+                tamanho = rpr.find(qn("w:sz")) if rpr is not None else None
+                if fontes is not None and fontes.get(qn("w:ascii")) and tamanho is not None:
+                    return fontes.get(qn("w:ascii")), int(tamanho.get(qn("w:val"))) / 2
+    return "Calibri", 11.0
+
+
+def _tem_fundo_colorido(tcPr) -> bool:
+    shd = tcPr.find(qn("w:shd")) if tcPr is not None else None
+    if shd is None:
+        return False
+    if shd.get(qn("w:themeFill")):
+        return True
+    return (shd.get(qn("w:fill")) or "auto").upper() not in ("AUTO", "FFFFFF")
+
+
+def _padronizar_cores(tabela, cabecalhos: list[str]) -> None:
+    """Padrão de cores das tabelas FAP, valendo também pra tabela colada com
+    formatação: cabeçalho e coluna "Item" sempre em COR_TABELA_DESTAQUE
+    (negrito), mesmo que a origem use outra cor ou cor de tema ali. No corpo,
+    célula com fundo colorido na origem é destaque proposital (ex.: a linha
+    do benefício contestado) e sai sempre em COR_LINHA_DESTACADA — a cor de
+    tema da origem (azul com clareamento) não sobrevive à cópia e virava
+    outro azul. Célula sem fundo continua branca; negrito/cor do texto como na origem."""
+    indice_item = _detectar_coluna_item(list(cabecalhos))
+    for indice_linha, linha in enumerate(tabela.rows):
+        coluna = 0
+        for tc in linha._tr.findall(qn("w:tc")):
+            tcPr = tc.find(qn("w:tcPr"))
+            span_el = tcPr.find(qn("w:gridSpan")) if tcPr is not None else None
+            span = int(span_el.get(qn("w:val"))) if span_el is not None else 1
+            if indice_linha == 0 or coluna == indice_item:
+                celula = _Cell(tc, tabela)
+                _sombrear_celula(celula, COR_TABELA_DESTAQUE)
+                _forcar_negrito(celula)
+            elif _tem_fundo_colorido(tcPr):
+                _sombrear_celula(_Cell(tc, tabela), COR_LINHA_DESTACADA)
+            coluna += span
 
 
 def _forcar_negrito(celula) -> None:
@@ -301,12 +358,19 @@ def _clonar_altura_linha(origem_row, destino_row) -> None:
 # ── Catálogo de larguras oficiais (TABELAS.docx) ──────────────────────────
 #
 # TABELAS.docx (na pasta modelo/) traz uma tabela-exemplo de cada tipo de
-# tese, com as larguras de coluna oficiais do escritório. Só é usado pra
-# tabela colada como TEXTO (sem larguras próprias): tabela colada com
-# formatação mantém sempre as larguras que a equipe definiu nela (ver
-# construir_tabela) — sobrescrever isso deixava tabelas grandes estranhas.
+# tese, com as larguras de coluna oficiais do escritório. Vale quando a
+# equipe NÃO definiu larguras próprias na tela "Padronizar tabela" — as
+# definidas lá (LargurasDoUsuario) sempre ganham do catálogo (ver
+# construir_tabela): antes o catálogo passava por cima delas e tabelas
+# grandes, como a do 60 DIAS, saíam redimensionadas.
 
 _CATALOGO_TABELAS: dict = {}
+
+
+class LargurasDoUsuario(list):
+    """Proporções de coluna que a equipe salvou na tela "Padronizar tabela"
+    (app._larguras_para). Marca a lista pra construir_tabela não deixar o
+    catálogo do TABELAS.docx passar por cima delas."""
 
 
 # variações de gênero/número do cabeçalho de nomes — EMPREGADA(S),
@@ -368,16 +432,6 @@ def _larguras_do_catalogo(cabecalhos: list[str]) -> list[int] | None:
     else:
         visuais = list(cabecalhos)
     return _CATALOGO_TABELAS.get((_chave_cabecalhos(visuais), len(cabecalhos)))
-
-
-def _larguras_da_grade(tabela_word) -> list[int] | None:
-    """Larguras (twips) das colunas da grade de uma tabela do Word, ou None
-    se a grade não tiver largura definida em todas as colunas."""
-    grade = tabela_word._tbl.find(qn("w:tblGrid"))
-    if grade is None:
-        return None
-    larguras = [int(c.get(qn("w:w")) or 0) for c in grade.findall(qn("w:gridCol"))]
-    return larguras if larguras and all(larguras) else None
 
 
 def _aplicar_larguras_twips(tabela, larguras: list[int]) -> None:
@@ -903,24 +957,19 @@ def construir_tabela(doc: Document, cabecalhos: list[str], linhas_dados: list[li
         tabela = _construir_tabela_reconstruida(doc, cabecalhos, linhas_dados, indice_nome,
                                                 tabela_referencia)
 
-    larguras_origem = _larguras_da_grade(tabela_referencia) if tabela_referencia is not None else None
-    if larguras_origem:
-        # tabela colada com formatação: as larguras de coluna que a equipe
-        # definiu na tabela original valem sempre, em TODAS as tabelas
-        # geradas (completa e de cada segurado) — nada de padrão do programa
-        # nem do TABELAS.docx por cima. Reaplicadas com layout fixo pra o
-        # Word não redimensionar as colunas sozinho em tabelas maiores.
-        _aplicar_larguras_twips(tabela, larguras_origem)
-    else:
-        # sem larguras de origem (texto colado): padrão do programa/da tela
-        # "Padronizar tabela" e, se o tipo de tabela for catalogado, as
-        # larguras oficiais do TABELAS.docx
-        if larguras_colunas:
-            _aplicar_larguras_colunas(doc, tabela, larguras_colunas)
+    if larguras_colunas:
+        _aplicar_larguras_colunas(doc, tabela, larguras_colunas)
+
+    # larguras oficiais do TABELAS.docx valem por cima do padrão do programa
+    # (as do arquivo importado variam de usuário pra usuário), mas NUNCA por
+    # cima das que a equipe salvou em "Padronizar tabela" — essas valem em
+    # todas as tabelas geradas (completa e de cada segurado)
+    if not isinstance(larguras_colunas, LargurasDoUsuario):
         larguras_oficiais = _larguras_do_catalogo(cabecalhos)
         if larguras_oficiais:
             _aplicar_larguras_twips(tabela, larguras_oficiais)
 
+    _padronizar_cores(tabela, cabecalhos)
     _centralizar_tabela(tabela)
 
     if por_copia:
