@@ -1,4 +1,0 @@
-- Programa mais leve: o instalador caiu de 62,5 MB para 38,6 MB
-  (remoção das bibliotecas numpy e pikepdf, substituídas por
-  equivalentes já embutidos), sem nenhuma mudança na aparência ou
-  nas funcionalidades.

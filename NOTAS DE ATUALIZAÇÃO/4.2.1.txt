@@ -1,1 +1,0 @@
-- Melhoria de log e otimização.
